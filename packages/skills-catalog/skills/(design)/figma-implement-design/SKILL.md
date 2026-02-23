@@ -225,6 +225,288 @@ Always check for existing components before creating new ones. Consistency acros
 
 When in doubt, prefer the project's design system patterns over literal Figma translation.
 
+---
+
+## SVG Icon Extraction Workflow
+
+### Overview
+
+When implementing Figma designs that contain icons, ALWAYS extract them as standalone React SVG components — never use raster images or third-party icon libraries unless the icon does not exist in Figma. This ensures exact pixel-fidelity, tree-shaking, and universal reuse.
+
+### Step-by-Step: Icon Extraction
+
+#### 1. Identify Icon Nodes
+
+In the `get_design_context` or `get_metadata` response, look for:
+- Nodes of type `COMPONENT`, `COMPONENT_SET`, or `FRAME` with names matching patterns like `Icon/`, `icon-`, `ic_`, or containing common icon names (arrow, close, search, etc.)
+- Vector nodes (`VECTOR`, `BOOLEAN_OPERATION`, `ELLIPSE`, `POLYGON`) that represent icon paths
+
+When a component set is dedicated to icons (e.g. `Icons/16`, `Icons/24`), fetch ALL its children:
+
+```
+get_metadata(fileKey=":fileKey", nodeId=":iconSetNodeId")
+```
+
+Then fetch each variant individually if needed.
+
+#### 2. Fetch SVG Source via MCP
+
+For each icon node, use `get_design_context` which returns SVG data via the localhost assets endpoint:
+
+```
+get_design_context(fileKey=":fileKey", nodeId=":iconNodeId")
+```
+
+**Rules:**
+- If the MCP response includes a `localhost` URL for an SVG asset, use it **directly** — do not re-download or transform the URL
+- If the response contains inline SVG `<path>` data in the design context, extract the raw SVG markup
+- Never substitute with an icon font or npm icon package
+
+#### 3. Clean and Optimize the SVG
+
+Before creating React components, normalize the raw SVG:
+
+```
+MANDATORY cleanup steps (apply in order):
+1. Remove width/height attributes from <svg> — these are controlled via props
+2. Add viewBox if missing — derive from width/height (e.g., "0 0 24 24")
+3. Replace any hardcoded fill/stroke color (e.g., fill="#1A1A1A") with currentColor
+   EXCEPTION: Multi-color icons — keep distinct colors, expose them as CSS custom properties
+4. Remove any <title>, <desc>, <defs> with IDs that may clash (rename IDs to use component name prefix)
+5. Remove data-* and Figma-specific attributes (e.g., data-figma-*, inkscape:*)
+6. Merge redundant transform="translate(0,0)" or equivalent no-ops
+7. Keep all path data exactly as-is — never manually simplify paths
+```
+
+If `svgo` is available in the project: `pnpm exec svgo --multipass icon.svg`
+
+#### 4. React SVG Component Pattern
+
+Use this canonical pattern for every exported React SVG icon:
+
+```tsx
+// src/components/icons/ArrowRightIcon.tsx
+import { forwardRef, SVGProps } from 'react';
+
+export interface ArrowRightIconProps extends SVGProps<SVGSVGElement> {
+  /** Size in pixels. Overrides width and height. Defaults to 24. */
+  size?: number;
+  /** Title for accessibility when icon is used standalone (not decorative). */
+  title?: string;
+}
+
+const ArrowRightIcon = forwardRef<SVGSVGElement, ArrowRightIconProps>(
+  ({ size = 24, title, className, 'aria-label': ariaLabel, ...props }, ref) => {
+    const isDecorative = !title && !ariaLabel;
+    return (
+      <svg
+        ref={ref}
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        width={size}
+        height={size}
+        fill="currentColor"
+        className={className}
+        aria-hidden={isDecorative ? true : undefined}
+        aria-label={ariaLabel}
+        role={isDecorative ? undefined : 'img'}
+        {...props}
+      >
+        {title && <title>{title}</title>}
+        {/* Paste exact paths from Figma SVG here */}
+        <path d="M..." />
+      </svg>
+    );
+  }
+);
+ArrowRightIcon.displayName = 'ArrowRightIcon';
+
+export default ArrowRightIcon;
+```
+
+**Key rules:**
+- `forwardRef` ALWAYS — enables consumers to attach refs (e.g., tooltips, popovers)
+- `size` prop controls both `width` and `height` uniformly; individual `width`/`height` props are still passable for non-square icons
+- `currentColor` fill — icon color inherits from CSS `color` property
+- Decorative icons (default): `aria-hidden="true"`, no role
+- Standalone meaningful icons: require `title` or `aria-label`; set `role="img"`
+- `SVGProps<SVGSVGElement>` spread — allows `className`, `style`, `onClick`, etc.
+- `displayName` for React DevTools
+
+#### 5. Multi-Color Icon Pattern
+
+When Figma uses multiple intentional colors (e.g., a brand logo or status indicator):
+
+```tsx
+// Example: brand logo with 2 intentional colors
+interface TwoColorIconProps extends Omit<SVGProps<SVGSVGElement>, 'fill'> {
+  size?: number;
+  primaryColor?: string;   // defaults to CSS --icon-color-primary or currentColor
+  accentColor?: string;    // defaults to CSS --icon-color-accent or project token
+}
+```
+
+Map Figma layer fill colors to CSS custom property defaults. Never hardcode hex values.
+
+#### 6. File Organization
+
+```
+src/
+  components/
+    icons/
+      ArrowRightIcon.tsx
+      CloseIcon.tsx
+      SearchIcon.tsx
+      CheckIcon.tsx
+      ...
+      index.ts              ← barrel export for all icons
+```
+
+`index.ts` barrel:
+```ts
+// src/components/icons/index.ts
+export { default as ArrowRightIcon } from './ArrowRightIcon';
+export type { ArrowRightIconProps } from './ArrowRightIcon';
+export { default as CloseIcon } from './CloseIcon';
+// ... one export per icon
+```
+
+**Naming convention:** `{FigmaLayerName}Icon.tsx` using PascalCase. Strip Figma prefixes like `ic_`, `icon/`, `Icon/`.
+
+#### 7. Icon Size System
+
+Figma icons typically come in multiple sizes (16, 20, 24, 32). Check the Figma component set for available sizes.
+
+```tsx
+// src/components/icons/types.ts
+export type IconSize = 12 | 16 | 20 | 24 | 32 | 48;
+// Use the size that matches the Figma frame/component frame, not the artboard size
+```
+
+Default size should match the most common usage in the Figma design.
+
+#### 8. Validation Checklist for Icons
+
+Before marking icon extraction complete:
+
+- [ ] SVG paths match Figma exactly (compare `get_screenshot` output side by side)
+- [ ] `viewBox` is correct — no cropping or overflow
+- [ ] Fill/stroke uses `currentColor` (or explicit multi-color props)
+- [ ] No hardcoded color hex values in `fill` or `stroke`
+- [ ] No width/height attributes on `<svg>` root (controlled via `size` prop)
+- [ ] `forwardRef` implemented
+- [ ] `aria-hidden` set for decorative, `title`/`aria-label` accessible for standalone
+- [ ] Barrel export added to `index.ts`
+- [ ] TypeScript compiles with zero errors
+
+### Icon Reuse in Parent Components
+
+When using an extracted icon in another component, always import from the icon barrel:
+
+```tsx
+// ✅ Correct — import from barrel
+import { ArrowRightIcon, CloseIcon } from '@/components/icons';
+
+// ❌ Wrong — deep import that bypasses barrel
+import ArrowRightIcon from '@/components/icons/ArrowRightIcon';
+```
+
+Set icon color via the parent's CSS `color` property (leverages `currentColor`):
+
+```tsx
+<button className="text-primary-600 hover:text-primary-700">
+  <ArrowRightIcon size={16} />
+  Continue
+</button>
+```
+
+---
+
+## Exact Figma Replication: Advanced Rules
+
+### Design Token Extraction
+
+Before coding any component, extract Figma variables/styles into project tokens:
+
+1. Run `get_variable_defs(fileKey, nodeId)` on the root frame or style guide node
+2. Map each Figma variable to the project's existing token (CSS variable or JS constant)
+3. Create new tokens in the project's token file only if no mapping exists
+4. Token mapping table (maintain this per project):
+
+| Figma Variable | Project Token | Notes |
+|---|---|---|
+| `color/brand/primary` | `--color-primary-600` | from Figma design context |
+| `spacing/4` | `--spacing-1` | 4px base unit |
+| `typography/body-md` | `text-base` | Tailwind class or CSS rule |
+
+### Auto-Layout → Flexbox/Grid Translation
+
+Figma Auto Layout properties map directly to CSS:
+
+| Figma Auto Layout | CSS Equivalent |
+|---|---|
+| Direction: Horizontal | `display: flex; flex-direction: row` |
+| Direction: Vertical | `display: flex; flex-direction: column` |
+| Spacing: between items (gap) | `gap: {value}px` |
+| Padding: {top} {right} {bottom} {left} | `padding: {t}px {r}px {b}px {l}px` |
+| Alignment: Top Left | `align-items: flex-start; justify-content: flex-start` |
+| Size: Fill container | `flex: 1` or `width: 100%` |
+| Size: Hug contents | `width: fit-content` or no explicit width |
+| Size: Fixed | `width: {value}px; flex-shrink: 0` |
+
+Always check `get_design_context` for the `layoutMode`, `primaryAxisAlignItems`, `counterAxisAlignItems`, `paddingTop/Right/Bottom/Left`, and `itemSpacing` fields.
+
+### Typography: Figma → Code
+
+```
+Figma Text Properties → CSS
+─────────────────────────────────────────────────────
+fontFamily        → font-family (map to project font stack)
+fontSize          → font-size (convert to rem: px / 16)
+fontWeight        → font-weight (100–900)
+lineHeightPx      → line-height (convert to unitless: lineHeightPx / fontSize)
+letterSpacing     → letter-spacing (convert to em: ls_px / fontSize)
+textAlignHorizontal → text-align (LEFT→left, CENTER→center, RIGHT→right)
+textDecoration    → text-decoration
+textTransform     → text-transform (UPPER→uppercase, LOWER→lowercase)
+```
+
+### Shadow: Figma → CSS box-shadow
+
+```
+Figma Effect: DROP_SHADOW
+  x, y, blur, spread, color(r,g,b,a)
+→ CSS: box-shadow: {x}px {y}px {blur}px {spread}px rgba({r},{g},{b},{a})
+
+Figma Effect: INNER_SHADOW
+→ CSS: box-shadow: inset {x}px {y}px {blur}px {spread}px rgba(...)
+```
+
+### Border Radius
+
+Figma uses individual corner radii. Always extract all four values:
+- If all four equal → `border-radius: {value}px`
+- If mixed → `border-radius: {tl}px {tr}px {br}px {bl}px`
+- Figma "percent" radius (smooth corners) → add `border-radius` with same px value (CSS doesn't support smooth corners natively; use `squircle` polyfill if required)
+
+### Pixel-Perfect Validation Technique
+
+After implementation, perform a visual diff:
+
+1. Open the implementation in browser (dev server)
+2. Take a screenshot at `1x` device pixel ratio (avoid Retina/HiDPI for comparison)
+3. Layer the Figma screenshot on top using Chrome DevTools overlay or Figma mirror
+4. Check for deviations >1px in spacing, >1px in sizing, or any color mismatch
+5. Fix deviations by adjusting to exact Figma values, then re-validate
+
+**Common causes of mismatch:**
+- Forgetting to apply Figma's `gap` vs `padding` correctly
+- Text `line-height` being browser-default vs Figma value
+- Missing `box-sizing: border-box` on elements with padding + fixed width
+- Incorrect `overflow: visible` vs `overflow: hidden` on containers
+
+---
+
 ## Common Issues and Solutions
 
 ### Issue: Figma output is truncated
