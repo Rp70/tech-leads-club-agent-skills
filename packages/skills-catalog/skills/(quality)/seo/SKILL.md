@@ -1,10 +1,10 @@
 ---
 name: seo
-description: Make pages discoverable, rankable, and understandable — by search engines *and* AI systems. Covers metadata, Open Graph/Twitter cards, JSON-LD structured data, rich snippet eligibility, robots.txt/llms.txt for AI crawlers, sitemaps, Lighthouse SEO/accessibility validation, and the newer "Agentic browsing" audit category (ARIA-validity for AI-agent navigation). Use when asked to "improve SEO", "optimize for search", "fix meta tags", "add structured data", "add Open Graph tags", "set up llms.txt", "fix rich snippets", "audit SEO", "run a Lighthouse SEO check", or "fix agentic browsing"/"fix accessibility tree not well-formed".
+description: Make pages discoverable, rankable, and understandable — by search engines *and* AI systems. Covers metadata, Open Graph/Twitter cards, JSON-LD structured data, rich snippet eligibility, robots.txt/llms.txt for AI crawlers, sitemaps, Lighthouse SEO/accessibility validation, the "Agentic browsing" audit category (ARIA-validity for AI-agent navigation), and static-export/SSG framework specifics (Next.js App Router, Astro) for locale-aware `<html lang>`, per-page metadata, and trailing-slash-consistent sitemaps. Use when asked to "improve SEO", "optimize for search", "fix meta tags", "add structured data", "add Open Graph tags", "set up llms.txt", "fix rich snippets", "audit SEO", "run a Lighthouse SEO check", "fix agentic browsing"/"fix accessibility tree not well-formed", or "fix duplicate canonical"/"fix hreflang on a static export".
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '2.1'
+  version: '2.2'
   last_reviewed: '2026-07'
 ---
 
@@ -820,15 +820,29 @@ For deeper Lighthouse CLI/CI setup (budgets, throttling, parsing reports), see [
 - [ ] HTTPS enabled everywhere, no mixed content
 - [ ] `robots.txt` allows crawling of important paths
 - [ ] No unintended `noindex` on indexable pages
-- [ ] Title tags present and unique per page
-- [ ] Single `<h1>` per page
+- [ ] Title tags present and **unique per page** — check more than the
+      homepage; a shared root layout/template silently serving the same
+      static title/description/canonical to every route is the single most
+      common finding on multi-page sites (see [§11](#11-static-export--ssg-framework-notes))
+- [ ] Single `<h1>` per page, and it actually renders in the **built/shipped
+      HTML** — grep the output, not just the component source. A commented-out
+      or otherwise unwired `<h1>` render path is a common false negative:
+      the "correct" JSX exists in the file, just never reached at runtime.
 
 ### High priority
 
 - [ ] Meta descriptions present and unique
 - [ ] Self-referencing canonical on every page
+- [ ] Canonical, `hreflang` alternates, and every sitemap.xml `<loc>` agree on
+      the exact URL form (trailing slash or not) — a framework's metadata
+      API may auto-normalize the canonical it renders while a hand-built
+      sitemap entry or JSON-LD `url` field does not, so the sitemap silently
+      contradicts the canonical it's supposed to describe
 - [ ] Sitemap present, valid, and submitted to Search Console
-- [ ] Open Graph + Twitter Card tags with a properly sized `og:image`
+- [ ] Open Graph + Twitter Card tags with a properly sized `og:image` —
+      verify the **actual file dimensions** match the declared
+      `og:image:width`/`height`, not just that the tags are present
+      (`file`/`identify og-image.png`, or `Image.open(...).size` in Python)
 - [ ] Mobile-responsive, tap targets ≥ 48px
 - [ ] Core Web Vitals passing at the 75th percentile
 
@@ -839,6 +853,9 @@ For deeper Lighthouse CLI/CI setup (budgets, throttling, parsing reports), see [
 - [ ] Image alt text and descriptive filenames
 - [ ] Internal linking with descriptive anchor text
 - [ ] `hreflang` set up correctly (if multi-region/language)
+- [ ] `<html lang>` matches the actual page locale on **every** localized
+      route, not just the default one — on i18n-routed static/SSG sites this
+      is easy to get structurally wrong (see [§11](#11-static-export--ssg-framework-notes))
 
 ### Emerging / AI discoverability
 
@@ -854,6 +871,149 @@ For deeper Lighthouse CLI/CI setup (budgets, throttling, parsing reports), see [
 - [ ] Re-validate structured data after schema/template changes
 - [ ] Monitor ranking + AI Overview citation changes
 - [ ] Check for broken internal/external links
+
+---
+
+## 11. Static export & SSG framework notes
+
+Patterns from implementing/porting the same SEO behavior across a Next.js
+App Router static export (`output: 'export'`) and an Astro static build for
+the same i18n site. The underlying bugs are generic — they'll recur on any
+statically-generated, multi-locale, multi-page site — the fixes are
+framework-specific.
+
+### Locale-aware `<html lang>` on i18n-routed sites
+
+The most common way this goes wrong: the layout/template that knows the
+current locale isn't the same one that renders `<html>`.
+
+**Next.js App Router**: a route like `app/[locale]/page.tsx` puts `locale`
+in a dynamic segment. If `<html>`/`<body>` live in a *parent* `app/layout.tsx`
+(above `[locale]` in the tree), that layout structurally cannot read
+`params.locale` — Next.js only passes a segment's params to layouts at or
+below it. The result is `<html lang>` hardcoded to one language, silently
+wrong on every other locale. Fix with Next's documented **multiple root
+layouts** pattern: split the bare/non-locale routes into their own route
+group (`app/(root)/layout.tsx`, its own minimal `<html>`, typically
+`noindex` since it's just a redirect stub) and move the *real*
+`<html lang={locale}>`/`<body>` into `app/[locale]/layout.tsx` itself, which
+does receive the param. Every route in `app/` must resolve to exactly one
+html-bearing layout; audit for stray routes outside both trees before
+shipping.
+
+**Astro**: locale is just a prop threaded from `Astro.params` into
+`BaseLayout.astro`, which renders `<html lang={locale}>` directly — no
+provider/context indirection, no layout-nesting constraint, "just works" for
+every localized page. The equivalent gotcha instead shows up as a **separate,
+non-localized bare route** (e.g. `src/pages/index.astro` redirecting `/` to
+the default locale) needing its own minimal layout/redirect page — same
+shape as Next's route-group split, just for a different reason (local
+dev/preview parity with a hosting-platform redirect rule, not a
+locale-plumbing limitation).
+
+**Generic check, any framework**: build the site, open the generated HTML
+for *every* locale (not just the default), and diff the `<html lang="...">`
+value against the URL. Don't trust that "it's a locale-aware framework" means
+this is automatic.
+
+### Per-page metadata — the shared-canonical trap
+
+A single static `metadata`/`<head>` object at the root layout is the single
+most common multi-page SEO bug: every route inherits the *same* title,
+description, and — critically — the *same* `canonical`. On a site with N
+indexable routes, this tells search engines all N pages are duplicates of
+whichever URL the canonical happens to hardcode (usually `/`), and only one
+of them can ever rank.
+
+- **Next.js App Router**: give every route its own `generateMetadata`
+  (page-level, not just layout-level) returning a per-route
+  `alternates.canonical`, `title`, `description`, and `openGraph`/`twitter`
+  overrides. The layout can still provide sitewide defaults (icons, robots,
+  author) — those merge with, and get overridden by, whatever the page-level
+  `generateMetadata` returns for overlapping keys.
+- **Astro**: the equivalent is per-page frontmatter building a metadata
+  object (title/description/canonical/og-image) and passing it as props into
+  a shared `<Seo.astro>`/`<head>` component — the component renders the tags,
+  but the *values* must come from the page, not be hardcoded inside the
+  component.
+- **Any framework**: after implementing, diff the rendered `<title>` and
+  `<link rel="canonical">` across at least 3 different routes. If they're
+  identical, the bug is still there regardless of how confident the
+  implementation looked.
+
+A small shared helper (`absoluteUrl(path)`, `localizedPath(locale, path)`,
+`buildLanguageAlternates(path)`) that every page/component routes URLs
+through is worth the abstraction the moment more than one place needs to
+build a URL — canonical, hreflang, sitemap, and JSON-LD `url`/`item` fields
+all have to agree, and they will silently drift if each one is built by hand
+in its own file.
+
+### robots.txt / sitemap.xml as generated code, not static files
+
+Prefer generating both from the framework's own routing/content source
+(locales list, CMS/content-collection query, event/product config) over
+hand-writing `public/robots.txt` and `public/sitemap.xml` — a hand-written
+sitemap goes stale the moment a route is added or removed and nothing
+reminds you to update it.
+
+- **Next.js**: `app/robots.ts` / `app/sitemap.ts` (the metadata-route
+  convention) work under `output: 'export'`, but **only** with
+  `export const dynamic = 'force-static'` added to each file — without it,
+  the build fails outright (`Error: export const dynamic = "force-static"
+  ... not configured on route "/robots.txt" with "output: export"`), because
+  Next treats these as dynamic server routes by default.
+- **Astro**: the equivalent is an API route (`src/pages/robots.txt.ts`,
+  `src/pages/sitemap.xml.ts`) exporting `export const prerender = true` so it
+  emits a static file at build time instead of requiring a server at
+  request time.
+
+### The trailing-slash consistency trap
+
+Static-export configs frequently set a trailing-slash mode
+(`trailingSlash: true` in Next.js, `trailingSlash: 'ignore'` +
+`build.format: 'directory'` in Astro) because every route is physically
+served as `folder/index.html`. Frameworks' own metadata APIs tend to
+auto-normalize URLs to match this (e.g. Next resolves `alternates.canonical`
+with the trailing slash even if you pass a path without one) — but anything
+you build by hand outside that API (a sitemap generator's `url` field, a
+JSON-LD `item`/`url` string) does **not** get that normalization for free.
+The result: a canonical with a trailing slash and a sitemap entry without
+one, describing the same page as two different URLs. Route every hand-built
+URL through the one shared helper mentioned above, and verify by grepping
+the built output for the same path across the canonical tag, hreflang
+alternates, `og:url`, the sitemap, and any JSON-LD blocks — they must be
+byte-for-byte identical.
+
+### Verifying a static export locally
+
+Before running Lighthouse (or Playwright) against a static export, serve it
+and manually curl/view-source **each locale's route**, not just `/`:
+
+```bash
+npx serve out          # or dist/, build/ — whatever the framework outputs
+```
+
+**Do not add `-s`/`--single`** (SPA fallback mode) — it rewrites *every*
+path to the same `index.html`, so `/es/` and `/en/events/foo/` all silently
+serve the site's root page. This produces a convincing false negative: the
+server responds 200, the page "loads," but Lighthouse/Playwright is
+auditing the wrong content entirely (symptoms: an empty `<title>`, or every
+locale reporting identical results). `-s` exists for client-side-routed SPAs
+with no real per-route files on disk — a multi-page static export is the
+opposite case, and needs the plain per-directory file resolution instead.
+
+Running headless Chrome inside a container/CI sandbox commonly needs
+explicit flags and sometimes an explicit binary path:
+
+```bash
+CHROME_PATH=/usr/bin/chromium npx lighthouse http://localhost:3000/ \
+  --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage"
+```
+
+If Lighthouse still reports `NO_FCP` ("the page did not paint any content")
+after adding these flags, suspect the SPA-fallback issue above before
+assuming it's a sandboxing problem — check what's actually being served
+first (`curl -s <url> | grep '<title>'`).
 
 ---
 
@@ -877,6 +1037,9 @@ For deeper Lighthouse CLI/CI setup (budgets, throttling, parsing reports), see [
 - [Schema.org](https://schema.org/)
 - [The Open Graph Protocol](https://ogp.me/)
 - [llmstxt.org — the llms.txt spec](https://llmstxt.org/)
+- [Next.js Metadata API — generateMetadata](https://nextjs.org/docs/app/building-your-application/optimizing/metadata)
+- [Next.js Multiple Root Layouts](https://nextjs.org/docs/app/building-your-application/routing/route-groups#opting-specific-segments-into-a-layout)
+- [Astro Endpoints (robots.txt/sitemap.xml as routes)](https://docs.astro.build/en/guides/endpoints/)
 - [Core Web Vitals](../core-web-vitals/SKILL.md)
 - [Accessibility](../web-accessibility/SKILL.md)
 - [Lighthouse Audits](../perf-lighthouse/SKILL.md)
