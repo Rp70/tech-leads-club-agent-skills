@@ -1,35 +1,36 @@
 ---
 name: seo
-description: Optimize for search engine visibility and ranking. Use when asked to "improve SEO", "optimize for search", "fix meta tags", "add structured data", "sitemap optimization", or "search engine optimization".
+description: Make pages discoverable, rankable, and understandable — by search engines *and* AI systems. Covers metadata, Open Graph/Twitter cards, JSON-LD structured data, rich snippet eligibility, robots.txt/llms.txt for AI crawlers, sitemaps, and Lighthouse SEO/accessibility validation. Use when asked to "improve SEO", "optimize for search", "fix meta tags", "add structured data", "add Open Graph tags", "set up llms.txt", "fix rich snippets", "audit SEO", or "run a Lighthouse SEO check".
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '1.0'
+  version: '2.0'
+  last_reviewed: '2026-07'
 ---
 
-# SEO optimization
+# SEO, metadata & AI discoverability
 
-Search engine optimization based on Lighthouse SEO audits and Google Search guidelines. Focus on technical SEO, on-page optimization, and structured data.
+Technical and on-page SEO based on Google Search Central guidelines, Lighthouse's SEO audit, schema.org, the Open Graph protocol, and emerging conventions for AI crawlers (llms.txt, GEO). The goal isn't just ranking in blue links anymore — it's being correctly parsed, previewed, and cited by search engines, social platforms, *and* LLM-based answer engines (Google AI Overviews, ChatGPT, Perplexity, Claude).
 
-## SEO fundamentals
+## How search (and AI) visibility breaks down
 
-Search ranking factors (approximate influence):
+| Factor                             | Influence | This skill                                                                |
+| ----------------------------------- | --------- | -------------------------------------------------------------------------- |
+| Content quality, relevance, E-E-A-T | ~35%      | Partial — structure & signals, not writing quality                       |
+| Backlinks & authority               | ~20%      | ✗ (off-page)                                                              |
+| Technical SEO (crawl/index/render)  | ~15%      | ✓                                                                         |
+| Page experience (Core Web Vitals)   | ~10%      | See [Core Web Vitals](../core-web-vitals/SKILL.md)                       |
+| On-page SEO & metadata              | ~10%      | ✓                                                                         |
+| Structured data & rich results      | ~5%       | ✓                                                                         |
+| AI/LLM discoverability (GEO)        | growing   | ✓ (llms.txt, crawler access, extractable content)                        |
 
-| Factor                            | Influence | This Skill                                         |
-| --------------------------------- | --------- | -------------------------------------------------- |
-| Content quality & relevance       | ~40%      | Partial (structure)                                |
-| Backlinks & authority             | ~25%      | ✗                                                  |
-| Technical SEO                     | ~15%      | ✓                                                  |
-| Page experience (Core Web Vitals) | ~10%      | See [Core Web Vitals](../core-web-vitals/SKILL.md) |
-| On-page SEO                       | ~10%      | ✓                                                  |
+Google's own position: optimizing for AI Overviews and LLM answer engines is not a separate discipline — it's the same fundamentals (crawlable, fast, well-structured, authoritative) plus a few new surfaces (AI crawler access, extractable answers).
 
 ---
 
-## Technical SEO
+## 1. Technical SEO
 
-### Crawlability
-
-**robots.txt:**
+### Crawlability — robots.txt
 
 ```text
 # /robots.txt
@@ -43,6 +44,7 @@ Disallow: /private/
 
 # Don't block resources needed for rendering
 # ❌ Disallow: /static/
+# ❌ Disallow: /*.js$
 
 Sitemap: https://example.com/sitemap.xml
 ```
@@ -53,29 +55,66 @@ Sitemap: https://example.com/sitemap.xml
 <!-- Default: indexable, followable -->
 <meta name="robots" content="index, follow" />
 
-<!-- Noindex specific pages -->
+<!-- Noindex specific pages (thank-you pages, internal search, filters) -->
 <meta name="robots" content="noindex, nofollow" />
 
-<!-- Indexable but don't follow links -->
+<!-- Indexable but don't follow links (e.g. user-generated content pages) -->
 <meta name="robots" content="index, nofollow" />
 
-<!-- Control snippets -->
-<meta name="robots" content="max-snippet:150, max-image-preview:large" />
+<!-- Control how Google renders snippets/previews -->
+<meta name="robots" content="max-snippet:150, max-image-preview:large, max-video-preview:-1" />
 ```
 
 **Canonical URLs:**
 
 ```html
-<!-- Prevent duplicate content issues -->
-<link rel="canonical" href="https://example.com/page" />
-
-<!-- Self-referencing canonical (recommended) -->
 <link rel="canonical" href="https://example.com/current-page" />
-
-<!-- For paginated content -->
-<link rel="canonical" href="https://example.com/products" />
-<!-- Or use rel="prev" / rel="next" for explicit pagination -->
 ```
+
+- Self-referencing canonical on every indexable page (recommended, even if it looks redundant)
+- Absolute URLs only — relative canonicals are a common source of bugs
+- Structured data must describe the canonical page; Google can't award rich results to a non-canonical URL
+
+### AI crawlers & robots.txt
+
+Traditional `robots.txt` now also gates AI systems. Each company uses **separate user-agent tokens** for training vs. retrieval — blocking one does not block the others.
+
+| User-agent            | Company    | Purpose                                  |
+| ---------------------- | ---------- | ------------------------------------------ |
+| `GPTBot`                | OpenAI     | Training data collection                  |
+| `OAI-SearchBot`         | OpenAI     | ChatGPT search indexing                   |
+| `ChatGPT-User`          | OpenAI     | Live browsing triggered by a user          |
+| `ClaudeBot`             | Anthropic  | Training data collection                  |
+| `Claude-SearchBot`      | Anthropic  | Search indexing                           |
+| `Claude-User`           | Anthropic  | Live browsing triggered by a user          |
+| `Google-Extended`       | Google     | Gemini / Vertex AI training (separate from Googlebot) |
+| `Applebot-Extended`     | Apple      | Apple Intelligence training                |
+| `PerplexityBot`         | Perplexity | Retrieval for cited answers                |
+| `CCBot`                 | Common Crawl | Public dataset used to train many LLMs   |
+| `Bytespider`            | ByteDance  | Training (mixed compliance record)        |
+
+```text
+# Allow answer-engine retrieval (helps citations), block training scrapers
+User-agent: GPTBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+```
+
+There's no universally "correct" policy — it's a business decision (traffic/citations vs. training-data control). Decide per bot, don't lump them under `User-agent: *`.
 
 ### XML sitemap
 
@@ -84,59 +123,39 @@ Sitemap: https://example.com/sitemap.xml
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://example.com/</loc>
-    <lastmod>2024-01-15</lastmod>
+    <lastmod>2026-07-01</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://example.com/products</loc>
-    <lastmod>2024-01-14</lastmod>
+    <lastmod>2026-06-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
 </urlset>
 ```
 
-**Sitemap best practices:**
-
-- Maximum 50,000 URLs or 50MB per sitemap
-- Use sitemap index for larger sites
-- Include only canonical, indexable URLs
-- Update `lastmod` when content changes
-- Submit to Google Search Console
+- Max 50,000 URLs / 50MB uncompressed per file — use a sitemap index for larger sites
+- Include **only** canonical, indexable (200, non-noindex) URLs
+- Update `lastmod` accurately — Google ignores it if it doesn't correlate with real changes
+- Reference it in `robots.txt` and submit it in Search Console / Bing Webmaster Tools
 
 ### URL structure
 
 ```
-✅ Good URLs:
-https://example.com/products/blue-widget
-https://example.com/blog/how-to-use-widgets
+✅ Good:  https://example.com/products/blue-widget
+✅ Good:  https://example.com/blog/how-to-use-widgets
 
-❌ Poor URLs:
-https://example.com/p?id=12345
-https://example.com/products/item/category/subcategory/blue-widget-2024-sale-discount
+❌ Poor:  https://example.com/p?id=12345
+❌ Poor:  https://example.com/products/item/category/subcategory/blue-widget-2024-sale-discount
 ```
 
-**URL guidelines:**
+- Hyphens, not underscores; lowercase only; keep under ~75 characters
+- Keywords naturally, not stuffed; avoid unnecessary parameters
+- HTTPS everywhere, including every asset (`img`, `script`, `link` sources) — mixed content erodes trust signals
 
-- Use hyphens, not underscores
-- Lowercase only
-- Keep short (< 75 characters)
-- Include target keywords naturally
-- Avoid parameters when possible
-- Use HTTPS always
-
-### HTTPS & security
-
-```html
-<!-- Ensure all resources use HTTPS -->
-<img src="https://example.com/image.jpg" />
-
-<!-- Not: -->
-<img src="http://example.com/image.jpg" />
-```
-
-**Security headers for SEO trust signals:**
+**Security headers that double as SEO trust signals:**
 
 ```
 Strict-Transport-Security: max-age=31536000; includeSubDomains
@@ -146,79 +165,50 @@ X-Frame-Options: DENY
 
 ---
 
-## On-page SEO
+## 2. Metadata & on-page SEO
 
 ### Title tags
 
 ```html
-<!-- ❌ Missing or generic -->
+<!-- ❌ -->
 <title>Page</title>
 <title>Home</title>
 
-<!-- ✅ Descriptive with primary keyword -->
+<!-- ✅ Descriptive, primary keyword near the front, brand at the end -->
 <title>Blue Widgets for Sale | Premium Quality | Example Store</title>
 ```
 
-**Title tag guidelines:**
-
-- 50-60 characters (Google truncates ~60)
-- Primary keyword near the beginning
-- Unique for every page
-- Brand name at end (unless homepage)
-- Action-oriented when appropriate
+- 50–60 characters (Google truncates around there in pixels, not strict chars)
+- Unique per page, matches search intent, no keyword stuffing
 
 ### Meta descriptions
 
 ```html
-<!-- ❌ Missing or duplicate -->
-<meta name="description" content="" />
-
-<!-- ✅ Compelling and unique -->
 <meta
   name="description"
   content="Shop premium blue widgets with free shipping. 30-day returns. Rated 4.9/5 by 10,000+ customers. Order today and save 20%."
 />
 ```
 
-**Meta description guidelines:**
-
-- 150-160 characters
-- Include primary keyword naturally
-- Compelling call-to-action
-- Unique for every page
-- Matches page content
+- 150–160 characters, unique per page, a real call-to-action
+- Google frequently rewrites descriptions it judges low-quality — make it worth keeping
 
 ### Heading structure
 
 ```html
-<!-- ❌ Poor structure -->
-<h2>Welcome to Our Store</h2>
-<h4>Products</h4>
-<h1>Contact Us</h1>
-
-<!-- ✅ Proper hierarchy -->
+<!-- ✅ -->
 <h1>Blue Widgets - Premium Quality</h1>
 <h2>Product Features</h2>
 <h3>Durability</h3>
 <h3>Design</h3>
 <h2>Customer Reviews</h2>
-<h2>Pricing</h2>
 ```
 
-**Heading guidelines:**
-
-- Single `<h1>` per page (the main topic)
-- Logical hierarchy (don't skip levels)
-- Include keywords naturally
-- Descriptive, not generic
+Single `<h1>` describing the page's main topic, no skipped levels, keywords used naturally — not stuffed. (This also drives most of Lighthouse's accessibility "heading order" audit — see [§8](#8-accessibility--seo-overlap).)
 
 ### Image SEO
 
 ```html
-<!-- ❌ Poor image SEO -->
-<img src="IMG_12345.jpg" />
-
-<!-- ✅ Optimized image -->
 <img
   src="blue-widget-product-photo.webp"
   alt="Blue widget with chrome finish, side view showing control panel"
@@ -228,55 +218,161 @@ X-Frame-Options: DENY
 />
 ```
 
-**Image guidelines:**
-
-- Descriptive filenames with keywords
-- Alt text describes the image content
-- Compressed and properly sized
-- WebP/AVIF with fallbacks
-- Lazy load below-fold images
+Descriptive filenames and alt text, explicit `width`/`height` (prevents CLS), modern formats (WebP/AVIF) with fallbacks, lazy-load below the fold, eager-load/`fetchpriority="high"` for the LCP image.
 
 ### Internal linking
 
 ```html
-<!-- ❌ Non-descriptive -->
+<!-- ❌ -->
 <a href="/products">Click here</a>
-<a href="/widgets">Read more</a>
 
 <!-- ✅ Descriptive anchor text -->
 <a href="/products/blue-widgets">Browse our blue widget collection</a>
-<a href="/guides/widget-maintenance">Learn how to maintain your widgets</a>
 ```
 
-**Linking guidelines:**
-
-- Descriptive anchor text with keywords
-- Link to relevant internal pages
-- Reasonable number of links per page
-- Fix broken links promptly
-- Use breadcrumbs for hierarchy
+Descriptive anchors (they're also an extractable signal for AI answer engines), breadcrumbs for hierarchy, fix broken links promptly.
 
 ---
 
-## Structured data (JSON-LD)
+## 3. Open Graph, Twitter/X Cards & icons
+
+Metadata that controls how a page looks when shared — Slack, iMessage, Facebook, LinkedIn, Discord, X, and increasingly what an LLM sees when it renders a link preview.
+
+### Core Open Graph tags
+
+```html
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Blue Widgets for Sale | Example Store" />
+<meta property="og:description" content="Premium blue widgets with free shipping and 30-day returns." />
+<meta property="og:url" content="https://example.com/products/blue-widget" />
+<meta property="og:site_name" content="Example Store" />
+<meta property="og:locale" content="en_US" />
+
+<!-- Image: always pair with explicit width/height so platforms don't have to
+     re-fetch and recompute — this is what actually speeds up cache generation -->
+<meta property="og:image" content="https://example.com/og/blue-widget.jpg" />
+<meta property="og:image:secure_url" content="https://example.com/og/blue-widget.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:alt" content="Blue widget with chrome finish on a white background" />
+```
+
+**og:image sizing (2026 consensus):**
+
+| Platform            | Recommended size | Aspect ratio |
+| -------------------- | ----------------- | ------------- |
+| Facebook / LinkedIn / Slack / iMessage | 1200×630 | 1.91:1 |
+| X (Twitter) `summary_large_image`      | 1200×675 (1200×630 also works) | 16:9 |
+| Pinterest (reads og:image, but built for portrait) | 1000×1500 | 2:3 |
+
+Use **1200×630** as the single default — it's accepted everywhere and only Pinterest prefers portrait. Keep text/logos ≥90px from every edge (X and LinkedIn crop the frame slightly differently); file <1MB, JPG for photos, PNG if you need crisp text; always set `og:image:width`/`og:image:height` — platforms cache faster and skip a re-fetch when they're present.
+
+### Type-specific Open Graph (article/product)
+
+```html
+<!-- Article -->
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2026-01-15T08:00:00+00:00" />
+<meta property="article:modified_time" content="2026-06-20T10:30:00+00:00" />
+<meta property="article:author" content="https://example.com/authors/jane-smith" />
+<meta property="article:section" content="Guides" />
+<meta property="article:tag" content="widgets" />
+
+<!-- Product -->
+<meta property="og:type" content="product" />
+<meta property="product:price:amount" content="49.99" />
+<meta property="product:price:currency" content="USD" />
+<meta property="product:availability" content="in stock" />
+```
+
+### Twitter/X Cards
+
+```html
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@examplestore" />
+<meta name="twitter:creator" content="@janesmith" />
+<meta name="twitter:title" content="Blue Widgets for Sale | Example Store" />
+<meta name="twitter:description" content="Premium blue widgets with free shipping and 30-day returns." />
+<meta name="twitter:image" content="https://example.com/og/blue-widget.jpg" />
+<meta name="twitter:image:alt" content="Blue widget with chrome finish on a white background" />
+```
+
+Always set `twitter:card` explicitly — if omitted, X silently falls back to the small `summary` card, which gets meaningfully less engagement. The `og:*` tags are used as a fallback by X if `twitter:*` equivalents are missing, but don't rely on that — set both.
+
+### Icons, theme color & manifest
+
+```html
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" /> <!-- 180x180 -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0b5fff" />
+```
+
+### Preview & validation
+
+- [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/) — also force-refreshes Facebook/Instagram's cache
+- [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/)
+- [Card Validator (X)](https://cards-dev.x.com/validator) *(inconsistent availability; a local OG preview tool or `curl` + manual check is a reliable fallback)*
+
+---
+
+## 4. Structured data (JSON-LD)
+
+Google explicitly recommends **JSON-LD only** (over Microdata/RDFa) — easiest to maintain, least error-prone, no interference with visible markup. Rules that apply to *every* type below:
+
+- Markup must describe **visible, on-page content** — don't mark up content the reader can't see
+- Data must be accurate and current — stale prices/availability get types demoted, not just the specific item
+- No self-serving ratings/reviews (e.g. a business writing its own "reviews" of itself)
+- Structured-data pages must **not** be blocked by `robots.txt` or `noindex` — Google can't evaluate what it can't crawl
+- Violations risk a manual action that strips rich-result eligibility (search ranking itself is unaffected)
+
+### ⚠️ 2026 rich-result eligibility changes
+
+Schema markup is still valid and useful (for AI Overviews / other engines) even where Google no longer renders a *visual* rich result:
+
+| Type                      | Status                                              |
+| -------------------------- | ---------------------------------------------------- |
+| **FAQPage**                 | Rich result **discontinued May 2026** for standard web search |
+| **HowTo**                    | Rich result discontinued (2023)                     |
+| **Sitelinks Search Box**     | Discontinued Jan 2026                              |
+| **SpecialAnnouncement, Q&A, Practice Problem** | Discontinued Jan 2026            |
+| **Dataset** (general search) | No longer a general-search rich result (Dataset Search product only) |
+| **Article, Product, Review, BreadcrumbList, Video, Event, LocalBusiness, Organization, Course** | Still active, still worth implementing |
+
+Keep FAQ/HowTo markup only if it also serves other consumers (site search, AI answer engines); don't invest new effort chasing a rich snippet that no longer renders.
 
 ### Organization
 
 ```html
 <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    "name": "Example Company",
-    "url": "https://example.com",
-    "logo": "https://example.com/logo.png",
-    "sameAs": ["https://twitter.com/example", "https://linkedin.com/company/example"],
-    "contactPoint": {
-      "@type": "ContactPoint",
-      "telephone": "+1-555-123-4567",
-      "contactType": "customer service"
-    }
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Example Company",
+  "url": "https://example.com",
+  "logo": "https://example.com/logo.png",
+  "sameAs": ["https://twitter.com/example", "https://linkedin.com/company/example"],
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "telephone": "+1-555-123-4567",
+    "contactType": "customer service"
   }
+}
+</script>
+```
+
+### WebSite
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Example Store",
+  "url": "https://example.com"
+}
 </script>
 ```
 
@@ -284,87 +380,69 @@ X-Frame-Options: DENY
 
 ```html
 <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "Article",
-    "headline": "How to Choose the Right Widget",
-    "description": "Complete guide to selecting widgets for your needs.",
-    "image": "https://example.com/article-image.jpg",
-    "author": {
-      "@type": "Person",
-      "name": "Jane Smith",
-      "url": "https://example.com/authors/jane-smith"
-    },
-    "publisher": {
-      "@type": "Organization",
-      "name": "Example Blog",
-      "logo": {
-        "@type": "ImageObject",
-        "url": "https://example.com/logo.png"
-      }
-    },
-    "datePublished": "2024-01-15",
-    "dateModified": "2024-01-20"
-  }
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How to Choose the Right Widget",
+  "description": "Complete guide to selecting widgets for your needs.",
+  "image": "https://example.com/article-image.jpg",
+  "author": { "@type": "Person", "name": "Jane Smith", "url": "https://example.com/authors/jane-smith" },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Example Blog",
+    "logo": { "@type": "ImageObject", "url": "https://example.com/logo.png" }
+  },
+  "datePublished": "2026-01-15",
+  "dateModified": "2026-06-20"
+}
 </script>
 ```
 
-### Product
+### Product (with review + availability)
 
 ```html
 <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    "name": "Blue Widget Pro",
-    "image": "https://example.com/blue-widget.jpg",
-    "description": "Premium blue widget with advanced features.",
-    "brand": {
-      "@type": "Brand",
-      "name": "WidgetCo"
-    },
-    "offers": {
-      "@type": "Offer",
-      "price": "49.99",
-      "priceCurrency": "USD",
-      "availability": "https://schema.org/InStock",
-      "url": "https://example.com/products/blue-widget"
-    },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.8",
-      "reviewCount": "1250"
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Blue Widget Pro",
+  "image": "https://example.com/blue-widget.jpg",
+  "description": "Premium blue widget with advanced features.",
+  "brand": { "@type": "Brand", "name": "WidgetCo" },
+  "offers": {
+    "@type": "Offer",
+    "price": "49.99",
+    "priceCurrency": "USD",
+    "availability": "https://schema.org/InStock",
+    "priceValidUntil": "2026-12-31",
+    "url": "https://example.com/products/blue-widget"
+  },
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "4.8",
+    "reviewCount": "1250"
+  }
+}
+</script>
+```
+
+Keep `price`/`availability`/`priceValidUntil` fresh — Google increasingly cross-checks Product structured data against live page content and Merchant Center feeds; stale data is a common cause of lost rich results.
+
+### FAQ (schema still valid; no longer a Google rich result)
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What colors are available?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Our widgets come in blue, red, and green." }
     }
-  }
-</script>
-```
-
-### FAQ
-
-```html
-<script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    "mainEntity": [
-      {
-        "@type": "Question",
-        "name": "What colors are available?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Our widgets come in blue, red, and green."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "What is the warranty?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "All widgets include a 2-year warranty."
-        }
-      }
-    ]
-  }
+  ]
+}
 </script>
 ```
 
@@ -372,63 +450,151 @@ X-Frame-Options: DENY
 
 ```html
 <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      {
-        "@type": "ListItem",
-        "position": 1,
-        "name": "Home",
-        "item": "https://example.com"
-      },
-      {
-        "@type": "ListItem",
-        "position": 2,
-        "name": "Products",
-        "item": "https://example.com/products"
-      },
-      {
-        "@type": "ListItem",
-        "position": 3,
-        "name": "Blue Widgets",
-        "item": "https://example.com/products/blue-widgets"
-      }
-    ]
-  }
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://example.com" },
+    { "@type": "ListItem", "position": 2, "name": "Products", "item": "https://example.com/products" },
+    { "@type": "ListItem", "position": 3, "name": "Blue Widgets", "item": "https://example.com/products/blue-widgets" }
+  ]
+}
+</script>
+```
+
+### LocalBusiness
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "name": "Example Store — Downtown",
+  "image": "https://example.com/store-front.jpg",
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "123 Main St",
+    "addressLocality": "Vancouver",
+    "addressRegion": "BC",
+    "postalCode": "V6B 1A1",
+    "addressCountry": "CA"
+  },
+  "telephone": "+1-604-555-0100",
+  "openingHoursSpecification": [
+    { "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday"], "opens": "09:00", "closes": "18:00" }
+  ]
+}
+</script>
+```
+
+### Event
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Event",
+  "name": "Vancouver Microsoft 365 Summit",
+  "startDate": "2026-09-15T09:00:00-07:00",
+  "endDate": "2026-09-16T17:00:00-07:00",
+  "eventAttendanceMode": "https://schema.org/MixedEventAttendanceMode",
+  "eventStatus": "https://schema.org/EventScheduled",
+  "location": {
+    "@type": "Place",
+    "name": "Vancouver Convention Centre",
+    "address": { "@type": "PostalAddress", "addressLocality": "Vancouver", "addressRegion": "BC", "addressCountry": "CA" }
+  },
+  "image": ["https://example.com/event-image.jpg"],
+  "organizer": { "@type": "Organization", "name": "Example Events", "url": "https://example.com" },
+  "offers": { "@type": "Offer", "url": "https://example.com/tickets", "price": "199.00", "priceCurrency": "CAD", "availability": "https://schema.org/InStock" }
+}
+</script>
+```
+
+### VideoObject
+
+```html
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoObject",
+  "name": "Widget assembly walkthrough",
+  "description": "Step-by-step assembly guide for the Blue Widget Pro.",
+  "thumbnailUrl": ["https://example.com/video-thumb.jpg"],
+  "uploadDate": "2026-03-10T08:00:00+00:00",
+  "duration": "PT4M32S",
+  "contentUrl": "https://example.com/videos/widget-assembly.mp4"
+}
 </script>
 ```
 
 ### Validation
 
-Test structured data at:
-
-- [Google Rich Results Test](https://search.google.com/test/rich-results)
-- [Schema.org Validator](https://validator.schema.org/)
+- [Google Rich Results Test](https://search.google.com/test/rich-results) — confirms actual rich-result eligibility, not just valid JSON
+- [Schema Markup Validator](https://validator.schema.org/) — spec-conformance for any schema.org type, not just Google-eligible ones
+- Google Search Console → *Enhancements* — production-monitoring for structured data errors at scale
 
 ---
 
-## Mobile SEO
+## 5. llms.txt & AI/LLM discoverability
 
-### Responsive design
+A proposed convention (Jeremy Howard, Answer.AI, Sept 2024) for helping LLM-based tools find and parse the *important* parts of a site — like a curated index, not a raw crawl. `robots.txt` is access control ("what you may fetch"); `llms.txt` is a routing hint ("what's worth fetching among what you're allowed to").
+
+**Reality check before implementing:** this is *not* a ratified web standard, and no major AI crawler (OpenAI, Anthropic, Google) has publicly confirmed it drives their retrieval — Google's John Mueller has said none of them do yet, and independent testing (Search Engine Land) found most sites saw no measurable traffic change after adding it. Treat it as a low-cost, low-risk addition — not a substitute for the fundamentals in the rest of this doc (crawlable HTML, fast pages, clean structured data).
+
+### Format (per the spec)
+
+```markdown
+# Project or Site Name
+
+> One-sentence summary of what this site/project is.
+
+Optional longer context paragraph — audience, scope, anything an LLM
+needs before reading further.
+
+## Docs
+
+- [Getting Started](https://example.com/docs/start): Setup and first steps
+- [API Reference](https://example.com/docs/api): Full endpoint reference
+
+## Examples
+
+- [Quickstart repo](https://example.com/examples/quickstart)
+
+## Optional
+
+- [Changelog](https://example.com/changelog): Only needed for deep context
+```
+
+- H1 (site/project name) is the only strictly required section
+- Blockquote summary directly under the H1
+- H2 sections are markdown link lists: `[title](url): optional note`
+- An `## Optional` section signals links that can be skipped when a consumer wants a shorter context window
+
+### llms-full.txt (common companion, not part of the formal spec)
+
+Many doc sites (Anthropic, Mintlify-generated docs, Vercel) additionally publish `llms-full.txt` — a single file with the *entire* concatenated documentation body, for tools that want full context in one fetch rather than following links. Add it once your `llms.txt` index stabilizes; skip it for small sites where the index alone is enough.
+
+### Generative Engine Optimization (GEO) — content tactics
+
+For content that AI Overviews/ChatGPT/Perplexity actually quote, independent of any special markup:
+
+- **Definition-first sentences** ("X is...") outperform narrative lead-ins for citation rate
+- **Concrete statistics and named sources** get cited more than vague claims
+- **Direct, extractable answers** near the top of the page/section — the same content that ranks organically tends to get cited in AI Overviews, so this reinforces rather than replaces SEO
+- Clean semantic HTML and heading structure (an LLM parses structure the same way a crawler does)
+- Fresh, dated content — Perplexity in particular favors recency
+
+---
+
+## 6. Mobile SEO
 
 ```html
-<!-- ❌ Not mobile-friendly -->
-<meta name="viewport" content="width=1024" />
-
-<!-- ✅ Responsive viewport -->
+<!-- ✅ -->
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 ```
 
-### Tap targets
-
 ```css
-/* ❌ Too small for mobile */
-.small-link {
-  padding: 4px;
-  font-size: 12px;
-}
-
 /* ✅ Adequate tap target */
 .mobile-friendly-link {
   padding: 12px;
@@ -436,97 +602,186 @@ Test structured data at:
   min-height: 48px;
   min-width: 48px;
 }
-```
 
-### Font sizes
-
-```css
-/* ❌ Too small on mobile */
 body {
-  font-size: 10px;
-}
-
-/* ✅ Readable without zooming */
-body {
-  font-size: 16px;
+  font-size: 16px; /* readable without zooming */
   line-height: 1.5;
 }
 ```
 
+Mobile-first indexing means Googlebot evaluates the mobile version of the page — verify metadata and structured data are present there too, not just on desktop.
+
 ---
 
-## International SEO
-
-### Hreflang tags
+## 7. International SEO
 
 ```html
-<!-- For multi-language sites -->
 <link rel="alternate" hreflang="en" href="https://example.com/page" />
 <link rel="alternate" hreflang="es" href="https://example.com/es/page" />
 <link rel="alternate" hreflang="fr" href="https://example.com/fr/page" />
 <link rel="alternate" hreflang="x-default" href="https://example.com/page" />
 ```
 
-### Language declaration
-
 ```html
 <html lang="en">
-  <!-- or -->
-  <html lang="es-MX"></html>
-</html>
+<!-- or -->
+<html lang="es-MX">
 ```
+
+Every hreflang set must be reciprocal (each page links back to all others, including itself) or Google ignores the whole cluster.
 
 ---
 
-## SEO audit checklist
+## 8. Accessibility & SEO overlap
+
+Accessibility and SEO share more signals than most checklists admit — both Lighthouse categories score several of the *same* underlying markup. Fixing one commonly fixes the other:
+
+| Signal                          | SEO impact                          | Accessibility impact                |
+| --------------------------------- | -------------------------------------- | -------------------------------------- |
+| `alt` text on images              | Image search, context for crawlers    | Screen reader content                |
+| Heading hierarchy (single `h1`, no skipped levels) | Topic signal, featured-snippet eligibility | Screen reader navigation ("jump to heading") |
+| Descriptive link text (not "click here") | Anchor-text ranking signal      | Screen reader "links list" navigation |
+| `lang` attribute                  | Correct language targeting            | Correct pronunciation for assistive tech |
+| Semantic HTML (`<nav>`, `<main>`, `<button>`) | Easier for crawlers to parse structure | Landmark navigation, correct roles |
+| Color contrast                    | Indirect (bounce rate / dwell time)   | WCAG 1.4.3 requirement               |
+| Valid, well-formed HTML            | Reliable parsing/rendering            | WCAG 4.1.1 Robust                    |
+
+For the full WCAG-based checklist (keyboard nav, ARIA, focus management, screen-reader testing), see [Accessibility](../web-accessibility/SKILL.md) — don't duplicate that work here, just remember an accessibility pass is usually also an SEO pass.
+
+---
+
+## 9. Lighthouse testing & validation
+
+### Run the SEO category alone
+
+```bash
+npx lighthouse https://example.com --only-categories=seo --output=json --output-path=./seo-report.json
+```
+
+### Run SEO + accessibility + best-practices together (skip performance for a quick content/markup pass)
+
+```bash
+npx lighthouse https://example.com --only-categories=seo,accessibility,best-practices
+```
+
+### What the SEO category checks (pass/fail, no partial credit)
+
+- Document has a `<title>` element and a meta description
+- Page has a successful HTTP status code (no 4xx/5xx)
+- Links have descriptive text (not "click here")
+- Links are crawlable (real `href`, not JS-only handlers)
+- Page isn't blocked from indexing (meta robots, `X-Robots-Tag`, robots.txt)
+- `robots.txt` is valid (no syntax errors)
+- Document has a valid `rel=canonical`
+- `<html>` has a `lang` attribute
+- Viewport meta tag is present and correctly configured
+- Structured data is valid (no parse errors — this does *not* confirm rich-result eligibility, only well-formed JSON-LD)
+
+A single failing audit can drop the whole category score noticeably since there's no partial credit — fix the failing audit, don't chase the score directly.
+
+### CI integration
+
+```bash
+npm install -D @lhci/cli
+```
+
+```json
+// lighthouserc.json
+{
+  "ci": {
+    "collect": { "url": ["https://example.com/"], "numberOfRuns": 3 },
+    "assert": {
+      "assertions": {
+        "categories:seo": ["error", { "minScore": 0.95 }],
+        "categories:accessibility": ["error", { "minScore": 0.9 }]
+      }
+    }
+  }
+}
+```
+
+```bash
+npx lhci autorun
+```
+
+For deeper Lighthouse CLI/CI setup (budgets, throttling, parsing reports), see [Lighthouse Audits](../perf-lighthouse/SKILL.md). For LCP/INP/CLS specifics, see [Core Web Vitals](../core-web-vitals/SKILL.md).
+
+### Beyond Lighthouse
+
+| Check                          | Tool                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------- |
+| Rich-result eligibility (not just valid JSON) | [Rich Results Test](https://search.google.com/test/rich-results) |
+| schema.org spec conformance        | [Schema Markup Validator](https://validator.schema.org/)              |
+| Social preview rendering           | [Facebook Sharing Debugger](https://developers.facebook.com/tools/debug/), [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/) |
+| Indexing status, crawl errors, Core Web Vitals field data | Google Search Console                        |
+| Sitewide crawl audit               | Screaming Frog                                                        |
+
+---
+
+## 10. SEO audit checklist
 
 ### Critical
 
-- [ ] HTTPS enabled
-- [ ] robots.txt allows crawling
-- [ ] No `noindex` on important pages
-- [ ] Title tags present and unique
+- [ ] HTTPS enabled everywhere, no mixed content
+- [ ] `robots.txt` allows crawling of important paths
+- [ ] No unintended `noindex` on indexable pages
+- [ ] Title tags present and unique per page
 - [ ] Single `<h1>` per page
 
 ### High priority
 
-- [ ] Meta descriptions present
-- [ ] Sitemap submitted
-- [ ] Canonical URLs set
-- [ ] Mobile-responsive
-- [ ] Core Web Vitals passing
+- [ ] Meta descriptions present and unique
+- [ ] Self-referencing canonical on every page
+- [ ] Sitemap present, valid, and submitted to Search Console
+- [ ] Open Graph + Twitter Card tags with a properly sized `og:image`
+- [ ] Mobile-responsive, tap targets ≥ 48px
+- [ ] Core Web Vitals passing at the 75th percentile
 
 ### Medium priority
 
-- [ ] Structured data implemented
-- [ ] Internal linking strategy
-- [ ] Image alt text
-- [ ] Descriptive URLs
-- [ ] Breadcrumb navigation
+- [ ] JSON-LD structured data implemented for applicable types (Organization, Article/Product/Event, Breadcrumb)
+- [ ] Structured data passes Rich Results Test with no errors
+- [ ] Image alt text and descriptive filenames
+- [ ] Internal linking with descriptive anchor text
+- [ ] `hreflang` set up correctly (if multi-region/language)
+
+### Emerging / AI discoverability
+
+- [ ] AI crawler policy in `robots.txt` is a deliberate choice, not an accidental blanket block
+- [ ] `llms.txt` present (optional, low-cost) if the site is documentation-heavy or developer-facing
+- [ ] Key answers/definitions are extractable near the top of the relevant section
 
 ### Ongoing
 
-- [ ] Fix crawl errors in Search Console
-- [ ] Update sitemap when content changes
-- [ ] Monitor ranking changes
-- [ ] Check for broken links
-- [ ] Review Search Console insights
+- [ ] Fix crawl errors flagged in Search Console
+- [ ] Update sitemap `lastmod` when content actually changes
+- [ ] Re-validate structured data after schema/template changes
+- [ ] Monitor ranking + AI Overview citation changes
+- [ ] Check for broken internal/external links
 
 ---
 
 ## Tools
 
-| Tool                      | Use                           |
-| ------------------------- | ----------------------------- |
-| Google Search Console     | Monitor indexing, fix issues  |
-| Google PageSpeed Insights | Performance + Core Web Vitals |
-| Rich Results Test         | Validate structured data      |
-| Lighthouse                | Full SEO audit                |
-| Screaming Frog            | Crawl analysis                |
+| Tool                      | Use                                             |
+| ------------------------- | ------------------------------------------------ |
+| Google Search Console     | Indexing status, rich-result errors, CWV field data |
+| Google PageSpeed Insights | Performance + Core Web Vitals (lab + field)     |
+| Rich Results Test         | Validate structured data → rich-result eligibility |
+| Schema Markup Validator   | Validate structured data → spec conformance     |
+| Lighthouse / Lighthouse CI | SEO, accessibility, performance, best-practices audit |
+| Facebook Sharing Debugger / LinkedIn Post Inspector | Social preview rendering & cache refresh |
+| Screaming Frog            | Sitewide crawl analysis                         |
 
 ## References
 
 - [Google Search Central](https://developers.google.com/search)
+- [Structured data general guidelines](https://developers.google.com/search/docs/appearance/structured-data/sd-policies)
+- [Google structured data gallery](https://developers.google.com/search/docs/appearance/structured-data/search-gallery)
 - [Schema.org](https://schema.org/)
+- [The Open Graph Protocol](https://ogp.me/)
+- [llmstxt.org — the llms.txt spec](https://llmstxt.org/)
 - [Core Web Vitals](../core-web-vitals/SKILL.md)
+- [Accessibility](../web-accessibility/SKILL.md)
+- [Lighthouse Audits](../perf-lighthouse/SKILL.md)
 - [Web Quality Audit](../web-quality-audit/SKILL.md)
