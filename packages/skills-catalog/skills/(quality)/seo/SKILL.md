@@ -1,10 +1,10 @@
 ---
 name: seo
-description: Make pages discoverable, rankable, and understandable — by search engines *and* AI systems. Covers metadata, Open Graph/Twitter cards, JSON-LD structured data, rich snippet eligibility, robots.txt/llms.txt for AI crawlers, sitemaps, and Lighthouse SEO/accessibility validation. Use when asked to "improve SEO", "optimize for search", "fix meta tags", "add structured data", "add Open Graph tags", "set up llms.txt", "fix rich snippets", "audit SEO", or "run a Lighthouse SEO check".
+description: Make pages discoverable, rankable, and understandable — by search engines *and* AI systems. Covers metadata, Open Graph/Twitter cards, JSON-LD structured data, rich snippet eligibility, robots.txt/llms.txt for AI crawlers, sitemaps, Lighthouse SEO/accessibility validation, and the newer "Agentic browsing" audit category (ARIA-validity for AI-agent navigation). Use when asked to "improve SEO", "optimize for search", "fix meta tags", "add structured data", "add Open Graph tags", "set up llms.txt", "fix rich snippets", "audit SEO", "run a Lighthouse SEO check", or "fix agentic browsing"/"fix accessibility tree not well-formed".
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '2.0'
+  version: '2.1'
   last_reviewed: '2026-07'
 ---
 
@@ -585,6 +585,96 @@ For content that AI Overviews/ChatGPT/Perplexity actually quote, independent of 
 - Clean semantic HTML and heading structure (an LLM parses structure the same way a crawler does)
 - Fresh, dated content — Perplexity in particular favors recency
 
+### Agentic browsing — a distinct, newer audit category
+
+Lighthouse (≥13.x) and PageSpeed Insights now report a separate **"Agentic
+browsing"** category alongside Performance/Accessibility/Best
+Practices/SEO — pass/fail-scored like SEO, and explicitly described by
+Google as "still under development and subject to change." It checks
+whether a page is *browsable and operable* by an AI agent (not just
+whether an LLM can find/cite its content, which is what the rest of this
+section covers), and validates WebMCP integrations where present. It's
+reported as its own category, not folded into `--only-categories=seo`
+or `=accessibility` — run a full/default Lighthouse pass (no category
+filter) or check the PageSpeed Insights UI directly to see it; the exact
+CLI category id isn't stable yet given Google's own "subject to change"
+caveat.
+
+The audit worth knowing in detail — **"Accessibility tree is not
+well-formed" / "ARIA attributes must conform to valid values"**: it
+fails whenever an ARIA attribute's value doesn't resolve to something
+real, most commonly `aria-controls`/`aria-labelledby`/`aria-describedby`
+pointing at an element **ID that isn't in the DOM at evaluation time**.
+This is easy to trip on legitimately, and Lighthouse evaluates the page
+in whatever state it loads in — usually "closed":
+
+```html
+<!-- ❌ Fails "Agentic browsing" (and is a real screen-reader bug too) —
+     evaluated while the menu is closed, #mobileNav doesn't exist yet -->
+<button aria-controls="mobileNav" aria-expanded="false">Menu</button>
+{isOpen && <nav id="mobileNav">…</nav>}
+```
+
+**Two fixes — pick the second one:**
+
+1. **Always render the target, toggle visibility with CSS** (e.g.
+   `translate-x-full`/`opacity-0` + `pointer-events-none` +
+   `aria-hidden={!isOpen}` instead of conditional mount/unmount). This
+   keeps the ID always resolvable, but it's a **DOM-structure change**:
+   anything that assumed the element doesn't exist while closed —
+   test-suite locators expecting a single match (`page.locator('nav')`
+   in strict mode), duplicate landmark/accessible-name collisions,
+   analytics/crawlers seeing "hidden" content differently — can silently
+   break. This is not hypothetical: fixing this exact pattern on a
+   production site this way broke ~7 existing Playwright specs that
+   located `header nav` expecting exactly one element, once a
+   conditionally-mounted mobile-nav `<nav>` became permanently mounted.
+2. **Make the ARIA attribute itself conditional instead** — omit it
+   entirely when there's nothing valid to point at. Per the WAI-ARIA
+   spec `aria-controls` is optional; a disclosure widget without it,
+   paired with `aria-expanded`, is fully conformant:
+
+   ```jsx
+   // React/JSX
+   <button
+     aria-controls={isOpen ? 'mobileNav' : undefined}
+     aria-expanded={isOpen}
+   >
+     Menu
+   </button>
+   {isOpen && <nav id="mobileNav">…</nav>}
+   ```
+
+   ```vue
+   <!-- Vue -->
+   <button :aria-controls="isOpen ? 'mobileNav' : null" :aria-expanded="isOpen">Menu</button>
+   <nav v-if="isOpen" id="mobileNav">…</nav>
+   ```
+
+   ```svelte
+   <!-- Svelte -->
+   <button aria-controls={isOpen ? 'mobileNav' : undefined} aria-expanded={isOpen}>Menu</button>
+   {#if isOpen}<nav id="mobileNav">…</nav>{/if}
+   ```
+
+   ```js
+   // Vanilla JS
+   function setOpen(open) {
+     button.toggleAttribute('aria-controls', open); // removes it entirely when false
+     if (open) button.setAttribute('aria-controls', 'mobileNav');
+     button.setAttribute('aria-expanded', String(open));
+     nav.hidden = !open; // or mount/unmount the node
+   }
+   ```
+
+   This has **zero DOM-structure impact** — no new elements, no test
+   regressions, no accessible-name collisions — and for SSR'd/static
+   frameworks (Next.js, Astro, Nuxt) it's correct out of the box as long
+   as the *initial* server-rendered state already omits the attribute
+   when closed (true by default whenever "closed" is the initial render
+   state, which it almost always is) — no client-only hydration fix-up
+   needed.
+
 ---
 
 ## 6. Mobile SEO
@@ -679,6 +769,11 @@ npx lighthouse https://example.com --only-categories=seo,accessibility,best-prac
 
 A single failing audit can drop the whole category score noticeably since there's no partial credit — fix the failing audit, don't chase the score directly.
 
+**Agentic browsing** is a separate category from SEO/Accessibility (see
+[§5](#5-llmstxt--ai-llm-discoverability) for the ARIA-validity audit that
+drives it) — don't assume `--only-categories=seo,accessibility` covers
+it; run the full/default report or check PageSpeed Insights directly.
+
 ### CI integration
 
 ```bash
@@ -750,6 +845,7 @@ For deeper Lighthouse CLI/CI setup (budgets, throttling, parsing reports), see [
 - [ ] AI crawler policy in `robots.txt` is a deliberate choice, not an accidental blanket block
 - [ ] `llms.txt` present (optional, low-cost) if the site is documentation-heavy or developer-facing
 - [ ] Key answers/definitions are extractable near the top of the relevant section
+- [ ] "Agentic browsing" Lighthouse category checked — `aria-controls`/`aria-labelledby`/`aria-describedby` on disclosure widgets (menus, accordions, modals) don't reference IDs that are conditionally absent from the DOM in the widget's default (closed) state
 
 ### Ongoing
 
