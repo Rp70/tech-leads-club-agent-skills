@@ -159,6 +159,28 @@ import '../styles/global.css'
 </html>
 ```
 
+## Client directive choice affects the critical path, not just hydration timing
+
+`network-dependency-tree-insight`/"reduce unused JavaScript" findings that
+trace back to a component with `client:load` are often a directive choice,
+not a bundling problem. `client:load` hydrates (and therefore fetches its
+whole JS chain — React runtime included, if it's a React island) as part of
+the initial navigation, competing for bandwidth/priority with whatever's
+actually on the LCP path (hero image, fonts). A header/nav island is the
+classic case: it's already fully visible from Astro's SSR'd HTML, and its
+interactivity (mobile-nav toggle, a dropdown) isn't needed until the user
+actually reaches for it. Switching it to `client:idle` defers the fetch +
+hydration until the main thread is idle instead of blocking on it from
+navigation start — on a real site this dropped a react/react-dom (43KB) +
+a dozen chunks off the reported critical path with no user-visible change,
+since nothing about first paint depended on that island being hydrated yet.
+`client:visible` is the right call instead when the island is genuinely
+below the fold (defer until scrolled into view); `client:idle` is right
+when it's above the fold but not interaction-critical on load. Verify no
+regression the same way as any hydration-timing change: run the full
+Playwright suite, not just a visual check — an above-the-fold island can
+still have tests that click it immediately after `page.goto`.
+
 ## Measuring
 
 ```bash
