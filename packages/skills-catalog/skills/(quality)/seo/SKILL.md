@@ -4,7 +4,7 @@ description: Make pages discoverable, rankable, and understandable — by search
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '2.3'
+  version: '2.4'
   last_reviewed: '2026-07'
 ---
 
@@ -737,6 +737,8 @@ Accessibility and SEO share more signals than most checklists admit — both Lig
 | Valid, well-formed HTML            | Reliable parsing/rendering            | WCAG 4.1.1 Robust                    |
 
 For the full WCAG-based checklist (keyboard nav, ARIA, focus management, screen-reader testing), see [Accessibility](../web-accessibility/SKILL.md) — don't duplicate that work here, just remember an accessibility pass is usually also an SEO pass. This includes two Lighthouse audits that trip up image-heavy pages specifically: **`image-redundant-alt`** (an image's `alt` duplicating adjacent visible text — common on card/list layouts where the whole card, image included, is one link) and **identical accessible names on different links** (WCAG 2.4.4) — both are image-SEO/semantic-HTML overlaps, and both are covered in detail in [Accessibility § Text alternatives](../web-accessibility/SKILL.md#text-alternatives-11).
+
+**"Descriptive link text" (row above) and `aria-label` are two separate signals — fixing one doesn't fix the other.** Lighthouse's `link-text` audit (the SEO check behind that table row) reads `node.innerText` and fails on an exact match against a per-language generic-phrase blocklist ("learn more", "click here", "read more", etc.) — it does not look at `aria-label` at all (confirmed from `lighthouse/core/audits/seo/link-text.js`: it filters on `link.text`, sourced from `innerText`, never the accessible-name computation). So `<a aria-label="Learn more">Learn more</a>` — a same-value `aria-label` that a shared button component sets defensively — still fails this specific audit even though the accessible name computation "exists." Two different fixes for two different consumers: `aria-label` (or better, a *distinct* aria-label value) is what screen readers use; the audit needs the *rendered* text itself to not be generic. If the visible text must stay short for design reasons, add a `.sr-only` span *inside* the link with the differentiating context (event/product/article title) — `.sr-only` text (absolute-positioned + clipped, not `display:none`/`visibility:hidden`) is still included in `innerText`, so it satisfies the audit without changing what sighted users see. See [Accessibility § Text alternatives](../web-accessibility/SKILL.md#text-alternatives-11) for the parallel same-value-aria-label pitfall on the accessibility side.
 
 ---
 
