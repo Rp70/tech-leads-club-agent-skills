@@ -116,6 +116,35 @@ against `(declared sizes value) × devicePixelRatio` — if they don't match,
 </picture>
 ```
 
+### Transparent WebP logos: the alpha channel, not the RGB data, is usually the size
+
+When Lighthouse's `image-delivery-insight` flags a small flat-color/
+transparent logo for "increasing the compression factor," lowering `-q`
+alone often barely moves the file size — because `cwebp` defaults to a
+**lossless** alpha channel regardless of the lossy RGB quality setting, and
+for a logo (flat colors, sharp text edges, transparent background) the
+alpha plane can be 40-60% of the total bytes. Check with `cwebp -q <N>
+input.png -o out.webp` (verbose output) — look for a `transparency:` line
+under "bytes used" and a "Lossless-alpha compressed size" line; if that
+number barely changes as you sweep `-q`, the RGB quality isn't your
+bottleneck. Add `-alpha_q <N>` (0-100, default 100) to make the alpha plane
+lossy too:
+
+```bash
+cwebp -q 80 -alpha_q 60 -m 6 logo.png -o logo.webp
+```
+
+On a real 269x84 transparent logo this cut the file from 12.4KB to 9.7KB
+(vs. ~12KB from `-q` alone) with no visible difference at 4x zoom.
+Recompress from the original source raster (PNG/SVG export), not by
+re-encoding an already-lossy `.webp` — decoding and re-encoding a lossy
+source compounds artifacts for no size benefit, since the alpha plane is
+what's actually costing bytes either way. Verify visually before shipping:
+decode both candidates (`dwebp old.webp -o a.png`, `dwebp new.webp -o
+b.png`), upscale 3-4x (`convert a.png -resize 400% a-big.png`), and
+side-by-side compare — text edges and antialiasing are where quality loss
+shows first on a logo.
+
 ---
 
 ## Sharp Script
