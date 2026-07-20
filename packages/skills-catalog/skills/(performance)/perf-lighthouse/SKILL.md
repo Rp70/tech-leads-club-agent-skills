@@ -11,6 +11,11 @@ description: "Run Lighthouse audits locally via CLI or Node API, parse and inter
 # Install
 npm install -g lighthouse
 
+# Or run without installing anything (no global install needed/wanted in a
+# one-off sandbox or CI job):
+npx lighthouse https://example.com
+pnpm dlx lighthouse https://example.com
+
 # Basic audit
 lighthouse https://example.com
 
@@ -23,6 +28,52 @@ lighthouse https://example.com --output=json --output-path=./report.json
 # Output HTML report
 lighthouse https://example.com --output=html --output-path=./report.html
 ```
+
+**Two-output gotcha**: `--output=json --output=html` writes to
+`<output-path>.report.json` / `.report.html` (suffix appended). A *single*
+`--output=json` writes to the literal `--output-path` you gave with no
+suffix — `require('./report.json')` will then fail with `MODULE_NOT_FOUND`
+unless you either request both formats or rename the file yourself before
+parsing it.
+
+## Matching PageSpeed Insights exactly
+
+PSI's mobile report uses a specific device + network profile — Lighthouse's
+own `--form-factor=mobile` default is close but not byte-identical unless
+you pin every value. To reproduce PSI's lab numbers locally (so a local
+Lighthouse score is a trustworthy proxy for what PSI will report before you
+spend a deploy cycle finding out):
+
+```bash
+lighthouse https://example.com \
+  --form-factor=mobile \
+  --screenEmulation.mobile \
+  --screenEmulation.width=412 \
+  --screenEmulation.height=823 \
+  --screenEmulation.deviceScaleFactor=1.75 \
+  --throttling-method=simulate \
+  --throttling.rttMs=150 \
+  --throttling.throughputKbps=1638.4 \
+  --throttling.cpuSlowdownMultiplier=4
+```
+
+This is Lighthouse's "Moto G Power" emulation + "Slow 4G" throttling
+profile, the same one PSI's mobile report is built on. `--throttling-
+method=simulate` (not `devtools`) matches PSI's lab methodology — it
+extrapolates timing from an observed trace rather than literally
+rate-limiting the connection, which is why a page can show a real
+absolute load time of ~150ms in `lcp-breakdown-insight`'s subparts while
+the *reported*, simulated LCP is several seconds: the simulated number
+models total critical-path weight under throttled conditions, not a
+literal stopwatch measurement. Don't be alarmed by the gap between the two
+— cross-check against the `*-breakdown-insight`/`*-insight` audits'
+`details` before concluding a metric is "wrong."
+
+Even with identical settings, **run at least twice and expect real
+run-to-run variance** (network/CPU jitter, especially against a live
+production origin rather than localhost) — a single run's score is a
+sample, not a fact; two runs landing on the same side of your target
+threshold is much stronger evidence than one.
 
 ## Common Flags
 
@@ -239,3 +290,12 @@ metrics.forEach(metric => {
 | Chrome not found | Set `CHROME_PATH` env var |
 | Timeouts | Increase with `--max-wait-for-load=60000` |
 | Auth required | Use `--extra-headers` or puppeteer script |
+| `Runtime error: Browser tab has unexpectedly crashed` (`TARGET_CRASHED`) in a container/CI sandbox | Add `--chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage --disable-gpu"` — `--disable-dev-shm-usage` in particular matters in containers with a small `/dev/shm` |
+| No system Chrome/Chromium installed at all | Point `CHROME_PATH` at any already-installed Chromium — a Playwright or Puppeteer install already has one: `find ~/.cache/ms-playwright -maxdepth 2 -iname "chrome" -type f` (or the Puppeteer equivalent under `~/.cache/puppeteer`) rather than installing a second browser just for Lighthouse |
+| `browserType.launch: Executable doesn't exist` (Playwright, not Lighthouse) | Different problem, same neighborhood: run `npx playwright install` (or `pnpm exec playwright install`) — a sandbox/container that's had its cache reset needs this even if it worked before; check which specific browser is missing (chromium vs. its headless-shell vs. webkit vs. firefox — a config using multiple device "projects" can each depend on a different one) before assuming the whole install is broken |
+
+## See also
+
+- **perf-astro** / **perf-web-optimization** — the actual fixes for whatever this audit surfaces (render-blocking CSS/fonts, image delivery, bundle size)
+- **core-web-vitals** — deep-dive on LCP/INP/CLS, including why a `lcp-breakdown-insight`'s absolute subpart durations can look tiny while the simulated LCP metric is high (see "Matching PageSpeed Insights exactly" above)
+- **seo** — Lighthouse's SEO and "Agentic browsing" categories aren't covered by `--only-categories=performance`; run a full/default report (or check PSI directly) if either matters for the task at hand
