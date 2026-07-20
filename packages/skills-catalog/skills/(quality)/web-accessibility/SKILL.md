@@ -4,7 +4,8 @@ description: Audit and improve web accessibility following WCAG 2.1 guidelines. 
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '1.0'
+  version: '1.1'
+  last_reviewed: '2026-07'
 ---
 
 # Accessibility (a11y)
@@ -54,6 +55,28 @@ Comprehensive accessibility guidelines based on WCAG 2.1 and Lighthouse accessib
   </figcaption>
 </figure>
 ```
+
+**Alt text must not be redundant with adjacent text in the same accessible name** (Lighthouse's `image-redundant-alt` audit, also breaks WCAG 2.4.4 Link Purpose when it happens inside a link): this shows up constantly on card/list layouts — image, title, and description all wrapped in one `<a>`/`<button>` — because the whole card's accessible name concatenates *every* descendant's text, so a descriptive `alt` on the image duplicates the visible heading right next to it:
+
+```html
+<!-- ❌ Accessible name announces the title twice: alt text, then the <h3> -->
+<a href="/events/annual-summit">
+  <img src="event-cover.jpg" alt="Annual Summit: keynote speakers on stage" />
+  <h3>Annual Summit</h3>
+  <p>Keynote speakers, workshops, and networking.</p>
+</a>
+
+<!-- ✅ Image is decorative in this context — the heading already gives the link its name -->
+<a href="/events/annual-summit">
+  <img src="event-cover.jpg" alt="" />
+  <h3>Annual Summit</h3>
+  <p>Keynote speakers, workshops, and networking.</p>
+</a>
+```
+
+The fix is contextual, not "always empty-alt the image" — if the image is the *only* text-equivalent content in the link (no visible heading anywhere inside it), it still needs a real, descriptive `alt`. The rule is specifically about **duplication within the same accessible-name computation**: check what's rendered *inside the same interactive ancestor* before deciding, not the image in isolation.
+
+**Identical accessible names on different links** (WCAG 2.4.4 Link Purpose, Lighthouse's "Identical links have the same purpose" audit) is the inverse failure mode on the same card-grid pattern: a repeated "Read more"/"Ver más" trailing link, *by itself*, pointing to different destinations per card. This usually isn't a real bug if the whole card (image + title + "Read more") is one link, since the link's full accessible name is then differentiated by the unique title text — it only fails when the "Read more" text is its own separate, isolated link with no other differentiating content in its accessible name. Verify which shape you actually have before "fixing" it with per-instance `aria-label`s that aren't needed.
 
 **Icon buttons need accessible names:**
 
@@ -529,3 +552,4 @@ axe https://example.com
 - [WAI-ARIA Authoring Practices](https://www.w3.org/WAI/ARIA/apg/)
 - [Deque axe Rules](https://dequeuniversity.com/rules/axe/)
 - [Web Quality Audit](../web-quality-audit/SKILL.md)
+- [SEO](../seo/SKILL.md) — the "Agentic browsing" Lighthouse category (ARIA-controls validity for AI-agent navigation) and the accessibility/SEO signal-overlap table
