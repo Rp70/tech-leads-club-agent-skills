@@ -4,7 +4,7 @@ description: Make pages discoverable, rankable, and understandable — by search
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '2.2'
+  version: '2.3'
   last_reviewed: '2026-07'
 ---
 
@@ -736,7 +736,7 @@ Accessibility and SEO share more signals than most checklists admit — both Lig
 | Color contrast                    | Indirect (bounce rate / dwell time)   | WCAG 1.4.3 requirement               |
 | Valid, well-formed HTML            | Reliable parsing/rendering            | WCAG 4.1.1 Robust                    |
 
-For the full WCAG-based checklist (keyboard nav, ARIA, focus management, screen-reader testing), see [Accessibility](../web-accessibility/SKILL.md) — don't duplicate that work here, just remember an accessibility pass is usually also an SEO pass.
+For the full WCAG-based checklist (keyboard nav, ARIA, focus management, screen-reader testing), see [Accessibility](../web-accessibility/SKILL.md) — don't duplicate that work here, just remember an accessibility pass is usually also an SEO pass. This includes two Lighthouse audits that trip up image-heavy pages specifically: **`image-redundant-alt`** (an image's `alt` duplicating adjacent visible text — common on card/list layouts where the whole card, image included, is one link) and **identical accessible names on different links** (WCAG 2.4.4) — both are image-SEO/semantic-HTML overlaps, and both are covered in detail in [Accessibility § Text alternatives](../web-accessibility/SKILL.md#text-alternatives-11).
 
 ---
 
@@ -773,6 +773,23 @@ A single failing audit can drop the whole category score noticeably since there'
 [§5](#5-llmstxt--ai-llm-discoverability) for the ARIA-validity audit that
 drives it) — don't assume `--only-categories=seo,accessibility` covers
 it; run the full/default report or check PageSpeed Insights directly.
+
+### A re-audit that "doesn't reflect the fix" is usually a caching problem, not a failed deploy
+
+If a metadata/markup fix (canonical, `hreflang`, structured data, `og:image`
+dimensions) was deployed but a re-run of Lighthouse/PSI still shows the old
+value, don't assume the deploy failed — `curl -sI <url>` the specific
+resource first and check `cache-control`/`cf-cache-status` (or your host's
+equivalent header) before re-diagnosing the code. A long-lived/immutable
+cache in front of the origin (CDN edge cache, not just the browser) can
+keep serving pre-fix bytes at the *same URL* indefinitely, even after a
+correct deploy — this bit an image-optimization pass hard enough to be
+worth its own writeup: see [Core Web Vitals § Verifying a fix actually
+reached production](../core-web-vitals/SKILL.md#verifying-a-fix-actually-reached-production).
+The same risk applies to any SEO artifact served from a static/cached path
+— an `og:image` file, a hand-generated `sitemap.xml`, a static
+`robots.txt` — if you edit its bytes in place without changing the URL,
+re-validate by checking the live response, not just the rebuilt output.
 
 ### CI integration
 
@@ -880,7 +897,11 @@ Patterns from implementing/porting the same SEO behavior across a Next.js
 App Router static export (`output: 'export'`) and an Astro static build for
 the same i18n site. The underlying bugs are generic — they'll recur on any
 statically-generated, multi-locale, multi-page site — the fixes are
-framework-specific.
+framework-specific. Since Core Web Vitals/page-experience is itself a
+ranking factor (see the table at the top of this doc), an SEO pass on an
+Astro site should generally also apply [Astro Performance
+Playbook](../perf-astro/SKILL.md)'s render-blocking-CSS/font fixes — a slow
+page undermines the metadata work in this section.
 
 ### Locale-aware `<html lang>` on i18n-routed sites
 
