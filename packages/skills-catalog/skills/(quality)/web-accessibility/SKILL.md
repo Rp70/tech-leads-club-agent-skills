@@ -4,7 +4,7 @@ description: Audit and improve web accessibility following WCAG 2.1 guidelines. 
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '1.1'
+  version: '1.2'
   last_reviewed: '2026-07'
 ---
 
@@ -77,6 +77,8 @@ Comprehensive accessibility guidelines based on WCAG 2.1 and Lighthouse accessib
 The fix is contextual, not "always empty-alt the image" — if the image is the *only* text-equivalent content in the link (no visible heading anywhere inside it), it still needs a real, descriptive `alt`. The rule is specifically about **duplication within the same accessible-name computation**: check what's rendered *inside the same interactive ancestor* before deciding, not the image in isolation.
 
 **Identical accessible names on different links** (WCAG 2.4.4 Link Purpose, Lighthouse's "Identical links have the same purpose" audit) is the inverse failure mode on the same card-grid pattern: a repeated "Read more"/"Ver más" trailing link, *by itself*, pointing to different destinations per card. This usually isn't a real bug if the whole card (image + title + "Read more") is one link, since the link's full accessible name is then differentiated by the unique title text — it only fails when the "Read more" text is its own separate, isolated link with no other differentiating content in its accessible name. Verify which shape you actually have before "fixing" it with per-instance `aria-label`s that aren't needed.
+
+**A same-value `aria-label` doesn't fix a generic-text link — it just re-asserts the same generic name.** Lighthouse's `link-text`/"Links do not have descriptive text" audit checks the computed accessible name, and `aria-label` fully *overrides* visible text rather than supplementing it — so `<a aria-label="Learn more">Learn more</a>` still has the accessible name "Learn more" and the audit still (correctly) fails. This is easy to miss on a component that already sets `aria-label={title}` defensively (e.g. a shared `ButtonCTA`) for some other reason, since the prop *looks* like an accessibility fix already in place. The actual fix is to make the override's *value* more descriptive than the visible label, not to add an override that echoes it: keep the visible button text short ("Learn more") but set the accessible name to something unique to the context (`aria-label={`Learn more: ${event.title}`}`) — add an optional override prop to the shared component if it doesn't have one, rather than hardcoding the visible text to be longer (which would change the design for a fix that only screen readers need).
 
 **Icon buttons need accessible names:**
 
