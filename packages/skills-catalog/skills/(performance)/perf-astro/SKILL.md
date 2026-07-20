@@ -49,6 +49,39 @@ Build output shows what it inlined:
 Inlined 40.70 kB (80% of original 50.50 kB) of _astro/index.xxx.css.
 ```
 
+**Verified against Astro 7.1.0 (2026-07)**: works cleanly, drops
+render-blocking-CSS Lighthouse findings to a clean pass (local Lighthouse
+went 88 → 94 in one real-world case, purely from this + the non-blocking
+font pattern below). One caveat worth knowing before it surprises you in a
+build log: `astro-critters` (last published Jan 2025, wraps Google's now-
+archived `critters` library, no explicit Astro peer-dependency declared)
+silently skips CSS rules its parser can't handle rather than failing the
+build — e.g. Tailwind v4's `:has()` selectors:
+
+```
+1 rules skipped due to selector errors:
+  .has-disabled\:opacity-50:has() -> Empty sub-selector
+```
+
+This is harmless (that one rule just isn't inlined, it's still in the
+deferred stylesheet), but re-check the build log after any Tailwind or
+Astro version bump in case the skipped-selector list grows, and don't
+assume a clean build means every rule was actually inlined. **Verify no
+FOUC** after adding this integration: screenshot the page at
+`domcontentloaded` and again ~1.5s later (Playwright) — they should be
+pixel-identical, since the whole point is that everything visible on first
+paint is covered by the inlined critical CSS.
+
+**Confusing chunk names are cosmetic, not a scoping bug**: Astro/Vite may
+name a page's entire CSS bundle after an unrelated shared import it
+happens to pick as the dependency graph's chunk-naming entry point (e.g. a
+file called `_astro/event-info.<hash>.css` that's actually the *whole
+site's* Tailwind output, not scoped to anything about "event info" — the
+name came from a JSON config file imported by one of the components on
+that page). Don't chase a "why is unrelated CSS loading on this page"
+theory based on the filename alone; open the file and check what selectors
+are actually in it.
+
 ### @playform/compress
 
 Minifies HTML, CSS, and JavaScript in the final build.
@@ -133,13 +166,25 @@ npx lighthouse https://your-site.com --preset=perf --form-factor=mobile
 ```
 
 See also:
-- **perf-lighthouse** - Running audits, reading reports, setting budgets
-- **perf-web-optimization** - Core Web Vitals, bundle size, caching strategies
+- **perf-lighthouse** - Running audits, reading reports, setting budgets, matching PageSpeed Insights' exact device/throttling settings
+- **perf-web-optimization** - Core Web Vitals, bundle size, caching strategies (including the immutable-cache-headers gotcha for `public/`-style static assets)
+- **core-web-vitals** - responsive-image `srcset` descriptor pitfalls (density vs. width) that show up constantly on Astro's `public/` static assets since Astro doesn't auto-generate `srcset` for them the way `astro:assets`'s `<Image>` does
+- **seo** - static-export/SSG framework notes (locale-aware `<html lang>`, per-page metadata, sitemap generation) for the same Astro static-build context this skill optimizes
 
 ## Checklist
 
 - [ ] `astro-critters` installed and configured
 - [ ] `@playform/compress` installed and configured
-- [ ] Google Fonts use `media="print" onload` pattern
+- [ ] Google Fonts use `media="print" onload` pattern (not just moved out
+      of a CSS `@import` into a plain `<link>` — a plain `<link
+      rel="stylesheet">` is still just as render-blocking as the `@import`
+      chain it replaced; the `media`/`onload` trick is the part that
+      actually removes it from the critical path)
 - [ ] Third-party scripts deferred to user interaction
 - [ ] LCP images preloaded in `<head>`
+- [ ] After adding critical-CSS inlining, screenshot-diffed
+      `domcontentloaded` vs. settled to confirm no FOUC
+- [ ] Re-ran Lighthouse and confirmed `render-blocking-insight` (or
+      Lighthouse ≤12's `render-blocking-resources`) actually scores clean
+      — don't rely on "the integration is configured" as a proxy for "it
+      worked"
