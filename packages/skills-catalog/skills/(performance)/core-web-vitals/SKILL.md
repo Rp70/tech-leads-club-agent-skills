@@ -4,7 +4,8 @@ description: Optimize Core Web Vitals (LCP, INP, CLS) for better page experience
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '1.0'
+  version: '1.1'
+  last_reviewed: '2026-07'
 ---
 
 # Core Web Vitals optimization
@@ -88,11 +89,25 @@ export async function getServerSideProps() {
 - [ ] TTFB < 800ms (use CDN, edge caching)
 - [ ] LCP image preloaded with fetchpriority="high"
 - [ ] LCP image optimized (WebP/AVIF, correct size)
+- [ ] Responsive images use the right srcset descriptor for the layout
+      (density `x` for fixed-size, width `w` + accurate `sizes` for
+      fluid — see perf-web-optimization's image-optimization reference)
 - [ ] Critical CSS inlined (< 14KB)
 - [ ] No render-blocking JavaScript in <head>
 - [ ] Fonts don't block text rendering (font-display: swap)
 - [ ] LCP element in initial HTML (not JS-rendered)
 ```
+
+**The LCP element is often a CSS `background-image`, not an `<img>`** —
+`fetchpriority` can't be set on a CSS property, and a plain
+`background-image: url(...)` is discovered late (only once the browser has
+parsed the CSS that references it). If Lighthouse's `lcp-discovery-insight`
+flags "fetchpriority=high should be applied" for an element that's
+visually a background image, the fix isn't on the (nonexistent) `<img>`
+tag — add a `<link rel="preload" as="image" href="..." fetchpriority="high">`
+in `<head>` pointing at the same URL. This makes the resource discoverable
+immediately from the initial HTML regardless of how the CSS eventually
+paints it.
 
 ### LCP element identification
 
@@ -458,9 +473,66 @@ startTransition(() => setExpensiveState(newValue))
 <img :style="{ aspectRatio: '16/9' }" />
 ```
 
+### Astro
+
+```astro
+---
+// LCP: astro:assets' <Image> generates width/height + modern formats
+// automatically, but for a CSS background-image (a common hero pattern
+// that astro:assets doesn't cover) you need a manual preload:
+---
+<link rel="preload" as="image" href="/hero.webp" fetchpriority="high" slot="head" />
+<section style={`background-image: url(${heroUrl})`}>...</section>
+```
+
+```astro
+<!-- INP: client directives control JS shipping per-component — the
+     biggest lever Astro gives you that other frameworks don't. Match the
+     directive to the component's actual above-the-fold/interactivity
+     need, don't default every interactive island to client:load: -->
+<Header client:load />        <!-- always-visible, needed immediately -->
+<GallerySection client:visible />  <!-- below the fold, defer until scrolled to -->
+<SearchWidget client:idle />   <!-- present but not urgent -->
+```
+
+For the full Astro-specific playbook (critical CSS inlining via
+`astro-critters`, the non-blocking Google Fonts pattern, and why a plain
+`<link rel="stylesheet">` is just as render-blocking as the `@import`
+chain it might be replacing), see [Astro Performance
+Playbook](../perf-astro/SKILL.md).
+
+## Verifying a fix actually reached production
+
+A re-run of Lighthouse/PSI that still shows a metric you already fixed
+doesn't always mean the fix is wrong or the deploy failed — check the
+*live* resource before re-diagnosing the code:
+
+```bash
+curl -sI https://example.com/assets/hero.webp | grep -iE "content-length|cache-control|cf-cache-status"
+```
+
+If `content-length` matches the *old*, pre-fix file size, and there's a
+long-lived/`immutable` `Cache-Control` on that path, the origin has the
+fix but a CDN edge cache (or even just the browser) is still serving
+bytes it cached before the fix shipped — the URL didn't change, so nothing
+told the cache to revalidate. This is a completely different problem from
+"the fix didn't work" or "the deploy didn't happen," and it wastes a real
+amount of time if you don't check the live response first. See
+[perf-web-optimization's Caching Headers
+section](../perf-web-optimization/SKILL.md#caching-headers) for the fix
+(rename the asset rather than editing bytes in place under an `immutable`
+path, or purge the CDN cache for that URL).
+
+This applies just as much to non-image assets an SEO/CWV pass might touch
+— a regenerated `og:image`, a hand-edited `robots.txt`, any static file
+served from a stable path — not just recompressed images.
+
 ## References
 
 - [web.dev LCP](https://web.dev/articles/lcp)
 - [web.dev INP](https://web.dev/articles/inp)
 - [web.dev CLS](https://web.dev/articles/cls)
-- [Performance skill](../performance/SKILL.md)
+- [Web Performance Optimization](../perf-web-optimization/SKILL.md) — bundle size, caching, the immutable-cache staleness caveat
+- [Astro Performance Playbook](../perf-astro/SKILL.md) — critical CSS, non-blocking fonts, client directive tuning
+- [Lighthouse Audits](../perf-lighthouse/SKILL.md) — running audits, matching PageSpeed Insights' exact device/throttling profile
+- [SEO](../seo/SKILL.md) — Core Web Vitals as a ranking factor, Agentic Browsing category
