@@ -116,6 +116,31 @@ Cache-Control: no-cache
 Cache-Control: private, max-age=0, must-revalidate
 ```
 
+⚠️ **`immutable` is a promise about the URL, not the file** — it tells every
+cache in the path (CDN edge, browser) to never revalidate that exact URL,
+ever. That's exactly right for hashed build output (`main.a3f8c9.js`) where
+a content change always produces a new filename. It's a trap for anything
+under a *stable* path — a `public/`-style static asset referenced by a
+fixed name (`logo.webp`, `hero-bg.png`) that a future change might
+recompress or replace **in place**. If that happens, every cache that
+already has the old bytes under that URL keeps serving them indefinitely —
+the origin is fixed, the deploy succeeded, and a re-audit (Lighthouse, PSI,
+even just eyeballing the page) will keep reporting the *old*, pre-fix file
+with no obvious error anywhere. This isn't hypothetical: it cost multiple
+full audit-fix-reaudit cycles on a real static site before being caught by
+directly `curl -I`-ing the live asset URL and comparing `content-length`
+against the just-committed file. **The fix, in order of preference:**
+1. Give the changed asset a new filename (any cache-busting suffix, or a
+   proper content hash) and update every reference — guaranteed fresh
+   fetch, no cache purge needed, works even without CDN dashboard access.
+2. If the filename truly can't change, purge the CDN's cache for that
+   specific URL after deploying.
+
+Never assume a "fixed" static asset reached users just because the build/
+deploy succeeded — verify with `curl -sI <url> | grep -i content-length`
+(or your CDN's cache-status header, e.g. Cloudflare's `cf-cache-status:
+HIT`/`MISS`) and compare against the actual file size on disk.
+
 ## Measurement
 
 ```bash
@@ -129,10 +154,16 @@ For running audits, reading reports, and setting budgets, see **perf-lighthouse*
 
 ### Images
 - [ ] Modern formats (WebP/AVIF)
-- [ ] Responsive `srcset`
+- [ ] Responsive `srcset` — using the right **descriptor type** for the
+      layout (density `x` for fixed-size images, width `w` + accurate
+      `sizes` for fluid containers — see
+      [references/image-optimization.md](references/image-optimization.md#responsive-images))
 - [ ] `width`/`height` attributes
 - [ ] `loading="lazy"` below fold
 - [ ] `fetchpriority="high"` on LCP image
+- [ ] Any static/non-hashed image path that got recompressed was verified
+      live (`curl -I`), not just rebuilt — see the caching-headers caveat
+      above
 
 ### JavaScript
 - [ ] Bundle < 200KB gzipped

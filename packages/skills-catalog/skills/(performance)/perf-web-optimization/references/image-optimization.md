@@ -48,6 +48,49 @@
 >
 ```
 
+### Density (`x`) vs. width (`w`) descriptors — pick the one that matches the layout
+
+These are not interchangeable, and using the wrong one silently defeats
+responsive image selection even when everything else about the markup is
+correct:
+
+- **Density descriptors (`1x`, `2x`)** — for an image whose **CSS display
+  size doesn't change** across viewports (a logo in a fixed-height header,
+  an avatar, a fixed-size icon). The browser picks a candidate purely from
+  its own `devicePixelRatio` — it has no way to know (and doesn't need to
+  know) how wide the image renders, because that's constant.
+
+  ```html
+  <img src="/logo.webp" srcset="/logo-1x.webp 1x, /logo-2x.webp 2x"
+       alt="Company logo" width="200" height="50">
+  ```
+
+- **Width descriptors (`400w`, `800w`, `1200w`) + `sizes`** — for an image
+  inside a **fluid/responsive container** whose rendered width genuinely
+  varies (a hero image, a card in a grid). The browser computes the
+  candidate it needs as `(sizes-resolved slot width) × devicePixelRatio`
+  and picks the smallest sufficient one — but only if `sizes` is accurate.
+
+**The failure mode that's easy to miss**: putting density descriptors on a
+fluid-width image (or width descriptors with a `sizes` value that
+over-declares the real slot width) makes the browser fetch a larger
+candidate than necessary on any screen with `devicePixelRatio > 1` — which
+is most phones. Concretely: an image in a container with `sizes="(max-
+width: 768px) 100vw, 50vw"`, where the *actual* rendered width on mobile is
+smaller than 100vw because of container padding the `sizes` string doesn't
+account for — the browser trusts the **declared** `sizes` value, not the
+true layout, so it computes a higher pixel need than what's really used
+and fetches a bigger image than the page actually displays. Lighthouse's
+`image-delivery-insight`/"oversized images" audit will flag this as
+"larger than it needs to be for its displayed dimensions" — and the fix
+is **not** to recompress the image (it's already correctly sized for a
+different, smaller viewport at a lower `devicePixelRatio`), it's to
+correct `sizes` to reflect what the container actually resolves to at each
+breakpoint (subtracting padding/margins, accounting for any `max-width`).
+Verify by checking the *reported* "displayed dimensions" in the audit
+against `(declared sizes value) × devicePixelRatio` — if they don't match,
+`sizes` is the bug, not the image file.
+
 ### Full responsive picture
 
 ```html
