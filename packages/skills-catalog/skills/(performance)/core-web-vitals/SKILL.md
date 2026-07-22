@@ -4,7 +4,7 @@ description: Optimize Core Web Vitals (LCP, INP, CLS) for better page experience
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '1.1'
+  version: '1.2'
   last_reviewed: '2026-07'
 ---
 
@@ -526,6 +526,18 @@ path, or purge the CDN cache for that URL).
 This applies just as much to non-image assets an SEO/CWV pass might touch
 — a regenerated `og:image`, a hand-edited `robots.txt`, any static file
 served from a stable path — not just recompressed images.
+
+**A brand-new URL can get poisoned too — including by your own
+verification `curl`.** The case above is about an *old* file edited in
+place under a stable URL. There's a second variant: right after a fresh
+deploy goes live, checking a genuinely *new* filename (e.g. a cache-
+busting rename you just shipped) can land in a brief CDN propagation gap
+and get back a fallback response that then caches under `immutable` for
+the URL's full TTL — the fix you just verified as correct in the repo
+never actually reaches real users. See [perf-web-optimization's Caching
+Headers section](../perf-web-optimization/SKILL.md#caching-headers) for
+the safe verification pattern (cache-busting query string on the first
+post-deploy check) that avoids ever triggering this.
 
 ## References
 
