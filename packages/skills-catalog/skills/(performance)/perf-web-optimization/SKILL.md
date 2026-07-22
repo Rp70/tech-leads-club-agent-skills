@@ -43,6 +43,50 @@ Always set `width` and `height` to prevent CLS.
       media="print" onload="this.media='all'">
 ```
 
+**Self-hosted `@font-face` files: check what glyphs they actually contain
+before assuming the file size is fixed.** A `network-dependency-tree-
+insight`/critical-path finding pointing at a `.ttf`/`.otf` file isn't
+always fixable only by loading strategy (preload/swap/subset via a
+webfont service) — the file itself may be far larger than the page
+needs. Inspect it directly:
+
+```python
+from fontTools.ttLib import TTFont
+f = TTFont('font.ttf')
+cmap = f.getBestCmap()
+print(len(cmap), 'glyphs')  # compare against what the site's content actually uses
+```
+
+A real case: a Spanish/English-only site's self-hosted "Futura PT"
+family turned out to be the full multi-script "Futura **Cyrillic**"
+variant — 416 glyphs per weight, 175 of them Cyrillic, on a site with
+zero Cyrillic content anywhere. Subsetting to Latin + common
+punctuation with `fonttools`' subsetter cut every weight file by
+~67% (66-71KB → 21-23KB) with zero visual change:
+
+```bash
+pip install fonttools
+python3 -m fontTools.subset font.ttf --output-file=font-latin.ttf \
+  --unicodes="U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FB01-FB02,U+FEFF,U+FFFD" \
+  --layout-features='*' --glyph-names --symbol-cmap --legacy-cmap \
+  --notdef-glyph --notdef-outline --recommended-glyphs \
+  --name-IDs='*' --name-legacy --name-languages='*'
+```
+
+Before trusting any subset in production: diff the codepoints dropped
+against every codepoint your content actually needs (Latin-1 range
+alone is not a safe assumption — check the *original* file for gaps
+too; a purchased/licensed font can be missing glyphs, like accented
+Latin characters, that were never there to begin with, in which case
+subsetting doesn't regress anything new). Then verify visually —
+render representative strings (uppercase tracked-out labels, ligature
+pairs like "fi"/"fl", any digits/punctuation actually used) in both
+the original and subsetted file side by side (a Playwright page with
+two `@font-face` rules pointed at data-URI-embedded fonts works well
+for this) and confirm pixel-for-pixel identical output before
+shipping. Never assume "Latin subset = safe" without checking the
+specific font's actual glyph coverage first.
+
 ### 3. Third-party Scripts (common INP killer)
 
 ```html
@@ -140,6 +184,36 @@ Never assume a "fixed" static asset reached users just because the build/
 deploy succeeded — verify with `curl -sI <url> | grep -i content-length`
 (or your CDN's cache-status header, e.g. Cloudflare's `cf-cache-status:
 HIT`/`MISS`) and compare against the actual file size on disk.
+
+⚠️ **Even a brand-new immutable-cached URL can get poisoned — by your own
+verification request.** This is a distinct failure mode from the one
+above (that one is about *editing an old file in place*; this one can
+hit a URL that has *never been requested before*, on a genuinely fresh
+deploy). Right after a deploy goes live, there's a brief window where a
+CDN's edge can still be propagating the new static assets while the
+HTML/routing layer is already serving the new build — a request that
+lands in that gap can get back a fallback response (e.g. a Pages/SPA
+catch-all serving `index.html`, `200 text/html`, for a static asset path
+that isn't fully replicated yet) instead of 404. If that path is under an
+`immutable` cache-control rule, the CDN edge caches that **wrong**
+response for that exact URL for the full TTL — often a year — and every
+subsequent real visitor gets it too, indefinitely, with the browser
+silently falling back (e.g. an invalid font file just makes text render
+in the fallback font, no visible error). This is easy to trigger by being
+diligent: checking a URL immediately after merging/deploying is exactly
+the kind of request that can land in the propagation gap.
+
+**Verify safely**: append a throwaway cache-busting query string
+(`?verify=<timestamp>`) to the *first* check after a deploy — most CDNs
+(confirmed on Cloudflare) key the cache on the full URL including query
+string, so a bust query always forces a fresh fetch from origin without
+ever touching (or risking poisoning) the canonical URL real users
+actually request. Only check the plain canonical URL once the bust-query
+check confirms the origin is serving correctly, and even then treat a
+single bad-looking response with suspicion — re-check 2-3 times before
+concluding either way, since the propagation gap is transient. If a
+canonical URL does turn out poisoned, the fix is the same as above:
+rename to a fresh URL, don't fight the cache.
 
 ## Measurement
 
