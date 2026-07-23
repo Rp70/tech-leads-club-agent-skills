@@ -75,6 +75,31 @@ production origin rather than localhost) — a single run's score is a
 sample, not a fact; two runs landing on the same side of your target
 threshold is much stronger evidence than one.
 
+### Diagnosing a suspected asymmetry between two pages/variants needs *more* samples per side, not a single side-by-side
+
+A single-snapshot PSI/Lighthouse report showing page A at 88 and page B at
+96 (e.g. two locale variants of the same site, `/es/` vs `/en/`) reads like
+a real, fixable gap — and it's tempting to start diagnosing the lower one
+immediately. Before writing any code, run **3+ independent samples per
+side** with identical settings and look at the spread, not just one pair:
+a real case showed `/es/` at 99, 98, 97 and `/en/` at 97, 96, 98 across
+three fresh runs each — i.e. the two pages were statistically
+indistinguishable, and the original 88-vs-96 reading was pure run-to-run
+noise on PSI's shared crawling infrastructure, not a persistent defect.
+Confirm with structural comparisons that don't have this noise problem —
+`dom-size`/`optimize-dom-size` element count, `total-byte-weight`, and
+per-audit `details` (e.g. `long-tasks-insight`'s attributed URL and
+duration) are stable properties of the built page, not measurements of a
+single throttled network trace, so comparing them directly between
+variants is a much more reliable "are these actually different" check
+than comparing category scores. **If the structural comparison comes back
+identical (or the direction of the difference flips run to run), don't
+invent a fix** — a code change for a gap that doesn't reproduce is scope
+creep dressed up as diligence, and it risks introducing the very
+regression you were trying to prevent. Report the investigation and the
+"no structural difference found" conclusion; that's a complete, honest
+answer to "why is X slower than Y," not a non-answer.
+
 ## Common Flags
 
 ```bash
