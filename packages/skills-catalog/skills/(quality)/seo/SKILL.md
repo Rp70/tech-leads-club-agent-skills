@@ -4,7 +4,7 @@ description: Make pages discoverable, rankable, and understandable — by search
 license: MIT
 metadata:
   author: web-quality-skills
-  version: '2.4'
+  version: '2.5'
   last_reviewed: '2026-07'
 ---
 
@@ -792,6 +792,21 @@ The same risk applies to any SEO artifact served from a static/cached path
 — an `og:image` file, a hand-generated `sitemap.xml`, a static
 `robots.txt` — if you edit its bytes in place without changing the URL,
 re-validate by checking the live response, not just the rebuilt output.
+
+### One locale variant scoring lower than another isn't necessarily a real gap
+
+On a multi-locale site, it's common to audit `/es/` and `/en/` (or any
+other locale pair) and see one score noticeably lower in a single PSI/
+Lighthouse snapshot. Resist diagnosing that locale's content/markup as
+the cause before running the audit 3+ times per locale — a real case
+showed an 8-point gap in one snapshot pair that completely disappeared
+across three fresh runs each (both landed in the same high-90s band,
+order reversed between runs). Cross-check with metrics that aren't
+sensitive to network jitter — DOM element count, total byte weight — to
+confirm whether the locales are actually structurally different before
+concluding one has a real defect. See [perf-lighthouse's variance
+section](../perf-lighthouse/SKILL.md#matching-pagespeed-insights-exactly)
+for the full methodology and a worked example.
 
 ### CI integration
 
